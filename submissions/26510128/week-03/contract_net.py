@@ -7,6 +7,7 @@ the same task set, model, temperature, and common prompt template.
 
 Usage:
     python contract_net.py --runs 3
+    python contract_net.py --condition baseline --runs 1
 
 Environment:
     OPENAI_BASE_URL=https://openrouter.ai/api/v1
@@ -14,6 +15,8 @@ Environment:
     AGENT_MODEL=nvidia/nemotron-3.5-lightning:free
     AGENT_TEMPERATURE=0.2
     AGENT_MAX_TOKENS=220
+    AGENT_REQUEST_INTERVAL=3.2
+    AGENT_MAX_RETRIES=2
 """
 from __future__ import annotations
 
@@ -21,12 +24,12 @@ import argparse
 import csv
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -49,6 +52,8 @@ CONDITIONS = ("baseline", "homogeneous", "overconfident")
 MODEL = os.environ.get("AGENT_MODEL", "nvidia/nemotron-3.5-lightning:free")
 TEMPERATURE = float(os.environ.get("AGENT_TEMPERATURE", "0.2"))
 MAX_TOKENS = int(os.environ.get("AGENT_MAX_TOKENS", "220"))
+REQUEST_INTERVAL = float(os.environ.get("AGENT_REQUEST_INTERVAL", "3.2"))
+MAX_RETRIES = int(os.environ.get("AGENT_MAX_RETRIES", "2"))
 
 BASE_SKILLS = {
     "A": "numerical calculation, arithmetic, algebra, and quantitative word problems",
@@ -63,13 +68,41 @@ COMMON_SYSTEM = (
     "You receive one task announcement and must decide whether to bid. "
     "Bid only when the task falls inside your assigned skill. "
     "If you bid, confidence must reflect how well the task matches your assigned skill. "
-    "Reply with exactly one JSON object and nothing else, with this schema: "
-    '{{"bid": true or false, "confidence": 0-100, "reason": "one short sentence"}}. '
-    "confidence must be an integer from 0 to 100."
+    "Submit exactly one bid through the submit_bid function. "
+    "Do not answer the task itself."
 )
 OVERCONFIDENT_SUFFIX = (
     " You are certain you can do any task well. Always bid, with confidence 95 or higher."
 )
+
+BID_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "submit_bid",
+        "description": "Submit this contractor's bid decision for the announced task.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "bid": {
+                    "type": "boolean",
+                    "description": "True if the contractor bids for the task.",
+                },
+                "confidence": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "Confidence that this task matches the assigned skill.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "One short sentence explaining the bid decision.",
+                },
+            },
+            "required": ["bid", "confidence", "reason"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 @dataclass
@@ -115,18 +148,7 @@ def announcement(task: dict[str, Any]) -> str:
     )
 
 
-def parse_bid(contractor: str, raw: str) -> Bid:
-    text = (raw or "").strip()
-    if text.startswith("```") and text.endswith("```"):
-        lines = text.splitlines()
-        if len(lines) >= 3:
-            text = "\n".join(lines[1:-1]).strip()
-
-    try:
-        obj = json.loads(text)
-    except Exception as exc:
-        return Bid(contractor, False, 0, "unparseable response", raw, type(exc).__name__)
-
+def validate_bid_object(contractor: str, obj: Any, raw: str) -> Bid:
     if not isinstance(obj, dict):
         return Bid(contractor, False, 0, "response was not a JSON object", raw, "schema")
 
@@ -148,33 +170,106 @@ def parse_bid(contractor: str, raw: str) -> Bid:
     return Bid(contractor, obj["bid"], confidence, reason.strip(), raw)
 
 
+def parse_bid(contractor: str, raw: str) -> Bid:
+    """Fallback parser for providers that return JSON in message content."""
+    text = (raw or "").strip()
+
+    if text.startswith("```") and text.endswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 3:
+            text = "\n".join(lines[1:-1]).strip()
+
+    # First try the entire reply.
+    try:
+        return validate_bid_object(contractor, json.loads(text), raw)
+    except Exception:
+        pass
+
+    # Some reasoning models put prose before/after the JSON. Scan for a JSON
+    # object without silently inventing any fields.
+    decoder = json.JSONDecoder()
+    for pos, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            obj, _ = decoder.raw_decode(text[pos:])
+            return validate_bid_object(contractor, obj, raw)
+        except Exception:
+            continue
+
+    return Bid(contractor, False, 0, "unparseable response", raw, "JSONDecodeError")
+
+
 def ask_contractor(
     client: OpenAI,
     contractor: str,
     condition: str,
     task: dict[str, Any],
 ) -> Bid:
-    try:
-        response = client.chat.completions.create(
-            model=MODEL,
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-            messages=[
-                {"role": "system", "content": system_prompt(contractor, condition)},
-                {"role": "user", "content": announcement(task)},
-            ],
-        )
-        raw = response.choices[0].message.content or ""
-        return parse_bid(contractor, raw)
-    except Exception as exc:
-        return Bid(
-            contractor=contractor,
-            bid=False,
-            confidence=0,
-            reason=f"model call failed: {type(exc).__name__}",
-            raw="",
-            parse_error=f"api:{type(exc).__name__}",
-        )
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                temperature=TEMPERATURE,
+                max_tokens=MAX_TOKENS,
+                messages=[
+                    {"role": "system", "content": system_prompt(contractor, condition)},
+                    {"role": "user", "content": announcement(task)},
+                ],
+                tools=[BID_TOOL],
+                tool_choice={
+                    "type": "function",
+                    "function": {"name": "submit_bid"},
+                },
+                extra_body={"reasoning": {"enabled": False}},
+            )
+
+            message = response.choices[0].message
+            tool_calls = getattr(message, "tool_calls", None) or []
+            if tool_calls:
+                call = tool_calls[0]
+                raw_args = call.function.arguments or ""
+                try:
+                    obj = json.loads(raw_args)
+                except Exception:
+                    return Bid(
+                        contractor,
+                        False,
+                        0,
+                        "unparseable tool arguments",
+                        raw_args,
+                        "JSONDecodeError",
+                    )
+                return validate_bid_object(contractor, obj, raw_args)
+
+            # Fallback in case a provider ignores forced tool calling.
+            raw = message.content or ""
+            return parse_bid(contractor, raw)
+
+        except RateLimitError:
+            if attempt >= MAX_RETRIES:
+                return Bid(
+                    contractor=contractor,
+                    bid=False,
+                    confidence=0,
+                    reason="model call failed after rate-limit retries",
+                    raw="",
+                    parse_error="api:RateLimitError",
+                )
+            # Back off without hammering the endpoint.
+            time.sleep(max(10.0, REQUEST_INTERVAL * (attempt + 2)))
+
+        except Exception as exc:
+            return Bid(
+                contractor=contractor,
+                bid=False,
+                confidence=0,
+                reason=f"model call failed: {type(exc).__name__}",
+                raw="",
+                parse_error=f"api:{type(exc).__name__}",
+            )
+
+    raise AssertionError("unreachable")
 
 
 def run_once(condition: str, tasks: list[dict[str, Any]], log) -> dict[str, int | str]:
@@ -189,8 +284,11 @@ def run_once(condition: str, tasks: list[dict[str, Any]], log) -> dict[str, int 
 
     log(
         f"[RUN] condition={condition} model={MODEL} "
-        f"temperature={TEMPERATURE} max_tokens={MAX_TOKENS}"
+        f"temperature={TEMPERATURE} max_tokens={MAX_TOKENS} "
+        f"request_interval={REQUEST_INTERVAL}"
     )
+
+    first_request = True
 
     for task in tasks:
         log("")
@@ -204,15 +302,15 @@ def run_once(condition: str, tasks: list[dict[str, Any]], log) -> dict[str, int 
             messages += 1
             log(f"[ANNOUNCE] manager -> {contractor}: {task['id']}")
 
-        # The three independent contractor calls can run concurrently.
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            futures = {
-                contractor: pool.submit(
-                    ask_contractor, client, contractor, condition, task
-                )
-                for contractor in ("A", "B", "C")
-            }
-            bids = [futures[c].result() for c in ("A", "B", "C")]
+        # Run contractor calls sequentially. OpenRouter's free endpoints are
+        # rate-limited, so bursting three concurrent requests makes the
+        # experiment less reproducible.
+        bids: list[Bid] = []
+        for contractor in ("A", "B", "C"):
+            if not first_request and REQUEST_INTERVAL > 0:
+                time.sleep(REQUEST_INTERVAL)
+            first_request = False
+            bids.append(ask_contractor(client, contractor, condition, task))
 
         valid_bidders: list[Bid] = []
         for bid in bids:

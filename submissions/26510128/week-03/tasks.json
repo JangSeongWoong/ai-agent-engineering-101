@@ -10,11 +10,6 @@
     "gold": "A"
   },
   {
-    "id": "calc-03",
-    "desc": "A machine produces 84 parts per hour for 6 hours. Calculate the total number of parts.",
-    "gold": "A"
-  },
-  {
     "id": "write-01",
     "desc": "Write a polite two-sentence email asking a professor for a meeting next week.",
     "gold": "B"
@@ -25,22 +20,12 @@
     "gold": "B"
   },
   {
-    "id": "write-03",
-    "desc": "Write a three-sentence product announcement for a new reusable water bottle.",
-    "gold": "B"
-  },
-  {
     "id": "code-01",
     "desc": "Write a Python function is_palindrome(text) that returns True when text is a palindrome.",
     "gold": "C"
   },
   {
     "id": "code-02",
-    "desc": "Write a Python function that returns the largest value in a non-empty list without using max().",
-    "gold": "C"
-  },
-  {
-    "id": "code-03",
     "desc": "Fix this Python bug and explain the correction: for i in range(len(items) + 1): print(items[i]).",
     "gold": "C"
   }

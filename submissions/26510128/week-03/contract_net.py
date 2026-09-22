@@ -32,6 +32,11 @@ from typing import Any
 from openai import OpenAI, RateLimitError
 
 
+class ExperimentPaused(Exception):
+    """Stop the entire run when the provider rejects requests for quota/rate."""
+
+
+
 BASE_DIR = Path(__file__).resolve().parent
 TASKS_PATH = BASE_DIR / "tasks.json"
 RESULTS_PATH = BASE_DIR / "results.csv"
@@ -246,18 +251,11 @@ def ask_contractor(
             raw = message.content or ""
             return parse_bid(contractor, raw)
 
-        except RateLimitError:
-            if attempt >= MAX_RETRIES:
-                return Bid(
-                    contractor=contractor,
-                    bid=False,
-                    confidence=0,
-                    reason="model call failed after rate-limit retries",
-                    raw="",
-                    parse_error="api:RateLimitError",
-                )
-            # Back off without hammering the endpoint.
-            time.sleep(max(10.0, REQUEST_INTERVAL * (attempt + 2)))
+        except RateLimitError as exc:
+            # Continuing with the other contractors would turn a quota outage
+            # into an entire row of misleading no-bids. Do not print the
+            # provider's exception text because it may include sensitive data.
+            raise ExperimentPaused("OpenRouter RateLimitError (HTTP 429)") from exc
 
         except Exception as exc:
             return Bid(
@@ -416,6 +414,7 @@ def main() -> None:
     conditions = CONDITIONS if args.condition == "all" else (args.condition,)
     run_no = existing_run_number()
 
+    paused = False
     with RESULTS_PATH.open("a", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
 
@@ -445,8 +444,15 @@ def main() -> None:
                         metrics["misawards"],
                         metrics["note"],
                     ]
+                except ExperimentPaused as exc:
+                    note = "paused: HTTP 429 RateLimitError; partial run; retry later"
+                    log(f"[PAUSED] {note}")
+                    row = [run_no, condition, "", "", "", "", "", note]
+                    paused = True
                 except Exception as exc:
-                    note = f"crash: {type(exc).__name__}: {exc}"
+                    # Keep crash type; never log arbitrary API exception text,
+                    # which can inadvertently contain credentials.
+                    note = f"crash: {type(exc).__name__}"
                     log(f"[CRASH] {note}")
                     row = [run_no, condition, "", "", "", "", "", note]
 
@@ -460,9 +466,16 @@ def main() -> None:
                 log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
                 writer.writerow(row)
                 f.flush()
+                if paused:
+                    log("[PAUSED] Stop now; do not send more API requests until the quota is available.")
+                    break
+            if paused:
+                break
 
     print(f"\nresults.csv updated: {RESULTS_PATH}")
     print(f"logs written under: {LOGS_DIR}")
+    if paused:
+        raise SystemExit("Stopped after rate limit; partial run saved as a failed run.")
 
 
 if __name__ == "__main__":

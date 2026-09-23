@@ -17,6 +17,7 @@ import json
 import os
 import re
 import time
+import traceback
 from pathlib import Path
 
 from openai import OpenAI, RateLimitError
@@ -398,7 +399,14 @@ def main() -> None:
                             # Do not echo exception messages: provider errors may
                             # contain tokens or sensitive request data.
                             note = f"crash: {type(exc).__name__}; episode may be retried"
-                            log(f"[CRASH] {note}")
+                            # Log only source function names and line numbers, not
+                            # exception messages or request contents (may contain keys).
+                            locations = [
+                                f"{frame.name}:{frame.lineno}"
+                                for frame in traceback.extract_tb(exc.__traceback__)
+                                if Path(frame.filename).name == "negotiation.py"
+                            ]
+                            log(f"[CRASH] {note} at {' > '.join(locations) or 'external API'}")
                             writer.writerow([run, condition, scenario["id"]] + [""] * 8 + [note])
                             file.flush()
                             if args.max_episodes and new_attempted >= args.max_episodes:

@@ -343,7 +343,7 @@ def main() -> None:
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--condition", choices=("all",) + CONDITIONS, default="all")
     parser.add_argument("--max-episodes", type=int, default=0,
-                        help="max newly completed episodes in this invocation; 0=all")
+                        help="max newly attempted episodes in this invocation, including failures; 0=all")
     args = parser.parse_args()
     if args.repeats < 1 or args.max_episodes < 0 or TURN_LIMIT < 1:
         raise SystemExit("Invalid repeats, max-episodes, or turn limit")
@@ -358,6 +358,7 @@ def main() -> None:
             csv.writer(f).writerow(HEADER)
     done = load_completed()
     api = client()
+    new_attempted = 0
     new_completed = 0
 
     conditions = CONDITIONS if args.condition == "all" else (args.condition,)
@@ -379,6 +380,7 @@ def main() -> None:
                         key = (run, condition, str(scenario["id"]))
                         if key in done:
                             continue
+                        new_attempted += 1
                         log(f"[SCENARIO] {scenario['id']} item={scenario['item']} "
                             f"reserve={scenario['reserve']} budget={scenario['budget']}")
                         try:
@@ -399,6 +401,10 @@ def main() -> None:
                             log(f"[CRASH] {note}")
                             writer.writerow([run, condition, scenario["id"]] + [""] * 8 + [note])
                             file.flush()
+                            if args.max_episodes and new_attempted >= args.max_episodes:
+                                log("[CHECKPOINT] Attempt limit reached after failed episode; "
+                                    "results.csv and logs/ saved. Fix the error or retry later.")
+                                return
                             continue
 
                         row = [run, condition, scenario["id"],
@@ -416,9 +422,10 @@ def main() -> None:
                             f"correct={metrics['correct']} violation={metrics['violation']} "
                             f"turns={metrics['turns']} format_errors={metrics['format_errors']} "
                             f"reader_calls={metrics['reader_calls']}")
-                        if args.max_episodes and new_completed >= args.max_episodes:
-                            print(f"[CHECKPOINT] {new_completed} new episode(s). "
-                                  "Re-run to continue; results.csv and logs/ are saved.")
+                        if args.max_episodes and new_attempted >= args.max_episodes:
+                            print(f"[CHECKPOINT] {new_attempted} attempted episode(s), "
+                                  f"{new_completed} completed. Re-run to continue; "
+                                  "results.csv and logs/ are saved.")
                             return
     print("[DONE] All requested complete episodes are recorded.")
 

@@ -85,6 +85,10 @@ class MessageError(Exception):
     """A model or reader message did not conform to the protocol."""
 
 
+class ModelResponseError(Exception):
+    """Provider returned a response object without usable message text."""
+
+
 def client() -> OpenAI:
     key = os.getenv("OPENAI_API_KEY")
     if not key:
@@ -105,13 +109,27 @@ def model_text(api: OpenAI, messages: list[dict[str, str]]) -> str:
                 extra_body={"reasoning": {"enabled": False}},
                 messages=messages,
             )
-            return response.choices[0].message.content or ""
+            choices = getattr(response, "choices", None)
+            if not choices:
+                raise ModelResponseError("provider response contained no choices")
+            message = getattr(choices[0], "message", None)
+            content = getattr(message, "content", None)
+            if not isinstance(content, str) or not content.strip():
+                raise ModelResponseError("provider response contained no usable text")
+            return content
         except RateLimitError as exc:
             if attempt == MAX_RETRIES:
                 # Never copy the provider's exception text to a public log.
                 raise PauseForQuota("HTTP 429 rate limit; resume after quota recovery") from exc
             wait = max(20.0, REQUEST_INTERVAL * (2 ** (attempt + 2)))
             print(f"[RATE LIMIT] Waiting {wait:g}s before retry {attempt + 1}/{MAX_RETRIES}")
+            time.sleep(wait)
+        except (ModelResponseError, TypeError, IndexError, AttributeError) as exc:
+            if attempt == MAX_RETRIES:
+                raise ModelResponseError(type(exc).__name__) from exc
+            wait = max(5.0, REQUEST_INTERVAL * (attempt + 1))
+            print(f"[MODEL RESPONSE] malformed provider reply; waiting {wait:g}s before retry "
+                  f"{attempt + 1}/{MAX_RETRIES}")
             time.sleep(wait)
     raise AssertionError("unreachable")
 
@@ -201,9 +219,16 @@ def read_message(api: OpenAI, condition: str, raw: str, log) -> tuple[str, int |
         raise MessageError("free reader API error") from exc
     try:
         obj = json_object(answer)
-        act, price = validate(obj.get("performative"), obj.get("price"))
+        act = obj.get("performative")
+        if act not in ACTS:
+            raise MessageError("unknown performative")
+        # The free-form reader sometimes repeats the accepted/rejected price
+        # even though our reader schema requests null. That still gives an
+        # unambiguous speech act, so ignore price for non-proposals instead of
+        # counting the original agent message as unparseable.
+        price = checked_price(obj.get("price")) if act == "propose" else None
         log(f"[READER free] performative={act} price={price} calls=1")
-        return act, price, 1
+        return str(act), price, 1
     except (ValueError, MessageError, TypeError) as exc:
         log(f"[READER free] error={type(exc).__name__} calls=1 response={answer[:100]!r}")
         raise MessageError("free reader parse failed") from exc

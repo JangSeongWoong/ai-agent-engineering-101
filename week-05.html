@@ -486,11 +486,11 @@ MCP-Protocol-Version: 2026-07-28
         <tr><td class="stage">의미론 검증</td><td>performative의 뜻을 보내는 쪽의 믿음과 의도로 정의했고, 그것을 밖에서 확인할 수 없었다</td><td>tool 호출의 뜻을 정신 상태로 정의하지 않는다. <code class="inline">tools/call</code>은 함수 실행 요청이고, server가 확인하는 것은 어떤 토큰으로 무엇을 불렀는가다</td></tr>
         <tr><td class="stage">추론</td><td>FP와 RE를 쓰려면 상대의 믿음을 추론해야 했고, 당시 구현은 performative 문자열로 분기했다</td><td>모델이 자연어 설명을 읽고 tool과 인자를 고른다. host 코드에는 도구별 분기가 없다</td></tr>
         <tr><td class="stage">ontology 합의</td><td>content를 읽으려면 <code class="inline">:language</code>와 <code class="inline">:ontology</code>를 양쪽이 미리 공유해야 했다</td><td>인자는 JSON Schema, 뜻은 자연어 설명으로 준다. 어휘 차이는 모델이 메우고, 합의 비용은 설명을 쓰는 server 제작자에게 간다</td></tr>
-        <tr><td class="stage">쓰는 쪽</td><td>상호운용할 에이전트가 생기기 전에 규격이 나왔다</td><td>tool calling을 하는 host가 먼저 있었고, 규격이 그 뒤에 나왔다</td></tr>
+        <tr><td class="stage">채택</td><td>상호운용할 에이전트가 생기기 전에 규격이 나왔다</td><td>tool calling을 하는 host가 먼저 있었고, 규격이 그 뒤에 나왔다</td></tr>
       </table>
     </div>
 
-    <p>FIPA-ACL은 그 규격을 쓸 에이전트가 생기기 전에 나왔다. MCP는 반대로 이미 tool calling을 하던 host들이 바로 가져다 썼다. TypeScript SDK(<code class="inline">@modelcontextprotocol/sdk</code>)의 npm 월간 다운로드는 아래와 같다.</p>
+    <p>FIPA-ACL은 그 규격으로 메시지를 주고받을 에이전트가 생기기 전에 나왔다. MCP는 순서가 반대였다. tool calling을 하는 host가 먼저 있었고, 그 host들이 MCP를 붙이면서 사용량이 늘었다. TypeScript SDK(<code class="inline">@modelcontextprotocol/sdk</code>)의 npm 월간 다운로드는 공개 직후인 2024년 12월 102,851에서 2026년 8월 28일부터 9월 26일까지 30일 동안 204,541,524로 늘었다.</p>
     <div class="recorder">
       <div><span class="k">2024-12</span><span class="v"><span class="m">102,851</span></span></div>
       <div><span class="k">2025-09</span><span class="v"><span class="m">31,258,519</span></span></div>
@@ -564,7 +564,9 @@ MCP-Protocol-Version: 2026-07-28
       <p class="sub">&ldquo;MCP servers MUST validate that access tokens were issued specifically for them as the intended audience.&rdquo; MCP Specification 2026-07-28, Authorization, Token Handling.</p>
     </div>
 
-    <p>1주차 토론은 Bitter Lesson을 두고 물었다. 프로토콜은 더 큰 모델에 흡수될, 손으로 심은 지식인가. MCP에서 설명을 읽고 알맞은 tool과 인자를 고르는 층은 모델의 능력에 달려 있다. 토큰을 검사하는 층은 server 코드 안에서 돌고, 모델이 무엇을 원하든 결과가 같다. 과제는 이 두 층의 차이를 같은 협상에서 잰다. 가격 한도를 system prompt에만 두면 한도를 지키는 일은 모델의 몫이고, 토큰에도 실으면 server의 몫이 된다.</p>
+    <p>1주차 토론에서는 Bitter Lesson을 두고, 프로토콜도 더 큰 모델에 흡수될 &lsquo;손으로 심은 지식&rsquo;인지 물었다. MCP에서는 일마다 답이 다르다. tool 설명을 읽고 어떤 tool을 어떤 인자로 부를지 고르는 일은 모델이 좋아질수록 잘된다. 토큰 검사는 server 코드가 하므로 모델의 성능과 상관없이 결과가 같다.</p>
+
+    <p>과제에서는 가격 한도를 지키는 일을 모델에 맡길 때와 server에 맡길 때를 비교한다. 한도를 system prompt에만 적으면 모델이 스스로 지켜야 하고, 토큰에도 실으면 server가 한도 밖의 수를 거부한다.</p>
   </div>
 </section>
 
@@ -850,7 +852,7 @@ mcp = MCPServer(<span class="st">"market"</span>, token_verifier=PartyTokens(),
       <div class="body">
         <p><strong>제출물</strong>: 코드(market server, host, 러너. 파일 구성 자유), <code class="inline">scenarios.json</code>, <code class="inline">results.csv</code>, <code class="inline">logs/</code>, <code class="inline">auth_checks.txt</code>, <code class="inline">REPORT.md</code>. 조건은 prompt_inject와 server_inject가 필수이고, 시나리오 4개 이상을 조건마다 3번씩 돌린다. prompt와 server는 선택이다.</p>
         <p><strong>auth_checks.txt</strong>: 실행 중인 server에 대해 네 줄. (1) 토큰 없는 요청의 HTTP 상태와 <code class="inline">WWW-Authenticate</code> 헤더, (2) 다른 협상의 <code class="inline">negotiation_id</code>를 부른 결과, (3) 차례가 아닌 수의 결과, (4) server 조건에서 토큰의 한도 밖 수의 결과.</p>
-        <p><strong>REPORT.md</strong>: (1) 설정: host, 모델, temperature, 토큰을 어떻게 발급하고 무엇을 싣는지, 실행 명령. (2) 결과표: 조건별 correct, violation, attempted, refused, 평균 turns와 에피소드 전체 표. (3) 비교표: 4주차 FIPA-ACL과 자기 market을 항목별로. 보내는 쪽이 누구이고 누가 그것을 정하는가, 행위가 어디에 있는가, content는 무엇인가, 한도는 누가 지키는가, 밖에서 무엇을 확인할 수 있는가, 어떤 실패가 나왔는가. (4) 해석 한 문단: 주입 아래에서 어느 층이 버텼는지, 거부 뒤 같은 턴에 유효한 수가 이어진 횟수를 세어 로그 줄과 함께 쓴다.</p>
+        <p><strong>REPORT.md</strong>: (1) 설정: host, 모델, temperature, 토큰을 어떻게 발급하고 무엇을 싣는지, 실행 명령. (2) 결과표: 조건별 correct, violation, attempted, refused, 평균 turns와 에피소드 전체 표. (3) 비교표: 4주차 FIPA-ACL과 자기 market을 항목별로. 보내는 쪽이 누구이고 누가 그것을 정하는가, 행위가 어디에 있는가, content는 무엇인가, 한도는 누가 지키는가, 밖에서 무엇을 확인할 수 있는가, 어떤 실패가 나왔는가. (4) 해석 한 문단: 주입이 있을 때 한도를 지킨 것이 모델인지 server인지, 거부 뒤 같은 턴에 유효한 수가 이어진 횟수를 세어 로그 줄과 함께 쓴다.</p>
         <p><strong>형식</strong>: 포크의 <code class="inline">submissions/&lt;학번&gt;/week-05/</code>에 커밋하고 upstream으로 PR을 연다. CI는 <code class="inline">scripts/check_week05.py</code>로 파일 형식과 server 조건의 violation=0을 검사한다. 같은 스크립트를 직접 실행해 통과를 확인한 뒤 PR을 연다.</p>
         <p><strong>채점 기준</strong>: 절반은 재현성, 절반은 해석이다. buyer가 주입된 budget을 인용하며 한도 위로 수락한 에피소드도, 모델이 notice를 알아채고 무시한 에피소드도 결과다. 둘 다 세어서 적는다. 참조 실행에서 loop host는 에피소드당 LLM을 평균 16번 불렀다. 필수 두 조건, 시나리오 4개, 3번이면 24판이므로 호출 수를 보고 모델과 키를 고른다.</p>
       </div>

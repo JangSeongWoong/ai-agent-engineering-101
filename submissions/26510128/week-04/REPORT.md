@@ -1,43 +1,74 @@
 # Week 04 — Speech acts in three negotiation formats
 
-## 1. Setup and reproducibility
+## 1. Setup, provider, prompts, and reproducibility
 
-This experiment uses one buyer LLM and one seller LLM negotiating a single integer price. The buyer opens; the seller has a private integer reserve (lowest acceptable price), while the buyer has a private integer budget (highest acceptable price). Each role receives its own system prompt containing only its own private limit. Neither agent is sent the other agent's limit or the `deal_possible` label. The manager/harness knows the two limits for retrospective evaluation only. The buyer and seller alternate for up to six **messages**, starting with the buyer.
+This experiment implements a two-agent price negotiation with one buyer LLM and one seller LLM. The buyer opens. The seller has a private reserve price (lowest acceptable price) and the buyer has a private budget (highest acceptable price). Each role receives only its own private limit; neither role receives the other side's limit or the retrospective `deal_possible` label. The harness alternates the two roles for at most six messages.
 
-**Fixed settings:** OpenRouter via the OpenAI-compatible API, model `nvidia/nemotron-3-super-120b-a12b:free`; temperature `0.2`, maximum response tokens `350`, turn limit `6`. The same `scenarios.json`, shared role-prompt wording, model, temperature, and turn limit apply to all conditions. `OPENAI_BASE_URL` and `OPENAI_API_KEY` must be supplied in the local terminal; the key is never committed. Every model call also requests `extra_body={"reasoning":{"enabled":False}}`. The runner spaces requests by `AGENT_REQUEST_INTERVAL=4` seconds and retries HTTP 429 up to `AGENT_MAX_RETRIES=3` with increasing waits. Persistent HTTP 429 pauses the experiment without fabricating episode metrics; restarting skips already completed (run, condition, scenario) combinations and leaves failed attempts visible in `results.csv`.
+### Final experimental environment
 
-**Shared role prompt:** Each agent is told it is buying/selling the scenario's item, that its own private limit must not be disclosed, to propose/accept only within that limit, and to use only four speech acts: `propose`, `accept-proposal`, `reject-proposal`, `refuse`. It may accept only the other side's outstanding offer. The buyer is required to open.
+- Provider/runtime: **Ollama local OpenAI-compatible API**
+- Base URL: `http://localhost:11434/v1`
+- Model: `qwen3:4b-instruct`
+- Temperature: `0.2`
+- Max response tokens: `350`
+- Turn limit: `6`
+- Request interval: `0` seconds
+- Repeats: 3 per condition
+- Scenarios: 4 fixed entries in `scenarios.json`
+- Total completed episodes: 36
 
-**The exact three format paragraphs** (the only condition-specific role-prompt text) are in `negotiation.py`, `FORMAT`:
+The same scenarios, shared role prompt, model, temperature, and turn limit were used in all three conditions. Only the message-format paragraph and the protocol reader prescribed by the assignment differed by condition.
 
-- `free`: “Reply in plain English. Express your chosen action naturally; no tags or JSON. When making an offer state a clear integer price. When accepting, explicitly agree to the last price proposed by the other side.”
-- `tagged`: “Start every message with exactly one tag: (propose), (accept-proposal), (reject-proposal), or (refuse). Then write plain English. For (propose) state one integer price. For (accept-proposal), accept ONLY the other side's last proposed price.”
-- `structured`: “Reply with exactly one JSON object, with performative one of propose, accept-proposal, reject-proposal, refuse; and content an object. For propose include an integer price: {"performative":"propose","content":{"price":70}}. For other acts use "content":{}. No code fences, commentary, or extra fields.”
+### Shared role behavior
 
-**Reader prompt:** “You are a protocol reader, not a negotiating party. Interpret ONE message and return exactly one JSON object with keys performative and price. performative MUST be one of propose, accept-proposal, reject-proposal, refuse. For a price proposal, price MUST be an integer; for all other acts, price MUST be null. If the message is a question without a matching act, use refuse. Do not change the act based on whether an offer is economically attractive. Do not add commentary or markdown.”
+Each agent is told that it is buying or selling the scenario item, must keep its private limit secret, must not propose or accept a price that violates that limit, and may use only four acts: `propose`, `accept-proposal`, `reject-proposal`, and `refuse`. An acceptance is valid only for the other side's outstanding proposal. The buyer is required to open.
 
-In `free`, the LLM reader labels every message's act and price; in `tagged`, a regex reads the act and the LLM reader extracts a price only for proposals; in `structured`, a JSON parser extracts both without a reader model call. A parser failure counts toward `format_errors`, and the agents can continue until the turn cap. An invalid acceptance (no outstanding **other-side** offer) is also a format/protocol error and does not create a deal. An accepted offer ends the episode with its outstanding integer price; `refuse` ends with `no_deal`; reaching the turn limit ends `open`.
+### Condition-specific format paragraphs
 
-**Metrics:** `deal_possible = int(reserve <= budget)`. `correct=1` exactly for a valid deal when a deal is possible or for `no_deal` when none is possible; otherwise 0. `violation=1` if a recorded deal is below reserve, above budget, or lacks a valid price. `turns` counts exchanged buyer/seller messages, `format_errors` counts failed/invalid protocol reads, and `reader_calls` counts LLM calls made **to interpret messages** (not the buyer/seller response-generation calls). Crashed or rate-limited episodes remain in the CSV with blank measurements and the error in `note`. A completed pair is never rerun automatically; incomplete pairs can be retried and their earlier failure row is retained.
+The exact strings are in `negotiation.py` under `FORMAT`.
 
-**How to run, from the Week 04 submission directory (PowerShell):**
+- **free:** “Reply in plain English. Express your chosen action naturally; no tags or JSON. When making an offer state a clear integer price. When accepting, explicitly agree to the last price proposed by the other side.”
+- **tagged:** “Start every message with exactly one tag: (propose), (accept-proposal), (reject-proposal), or (refuse). Then write plain English. For (propose) state one integer price. For (accept-proposal), accept ONLY the other side's last proposed price.”
+- **structured:** “Reply with exactly one JSON object, with performative one of propose, accept-proposal, reject-proposal, refuse; and content an object. For propose include an integer price: {"performative":"propose","content":{"price":70}}. For other acts use "content":{}. No code fences, commentary, or extra fields.”
+
+### Reader prompt
+
+The free condition uses this LLM reader prompt for every message, and the tagged condition uses the same reader only to extract the price of a `propose` message:
+
+> You are a protocol reader, not a negotiating party. Interpret ONE message and return exactly one JSON object with keys performative and price. performative MUST be one of propose, accept-proposal, reject-proposal, refuse. For a price proposal, price MUST be an integer; for all other acts, price MUST be null. If the message is a question without a matching act, use refuse. Do not change the act based on whether an offer is economically attractive. Do not add commentary or markdown.
+
+Protocol interpretation is therefore:
+
+- **free:** one reader-model call for every message;
+- **tagged:** regex reads the parenthesized performative; the reader model is called only for the price of `propose`;
+- **structured:** local JSON parsing only, with no reader-model call.
+
+An invalid or unparsable protocol message increments `format_errors` and negotiation continues if turns remain. `accept-proposal` ends with a deal at the outstanding other-side price; `refuse` ends with `no_deal`; otherwise the episode ends as `open` at the six-message limit.
+
+### Metrics
+
+`deal_possible=1` exactly when `reserve <= budget`. `correct=1` when (a) a deal is possible and the recorded deal price lies inside both private limits, or (b) no deal is possible and the episode ends `no_deal`. `violation=1` records a completed deal below reserve or above budget. `turns` counts exchanged messages. `format_errors` counts protocol/parser failures. `reader_calls` counts LLM calls used **only to interpret messages**, not the buyer/seller generation calls.
+
+### How to reproduce
+
+Install Ollama, pull the same model, and start Ollama. From `submissions/26510128/week-04` in PowerShell:
 
 ```powershell
-$env:OPENAI_BASE_URL="https://openrouter.ai/api/v1"
-$env:OPENAI_API_KEY="<YOUR_OPENROUTER_API_KEY>"
-$env:AGENT_MODEL="nvidia/nemotron-3-super-120b-a12b:free"
+$env:OPENAI_BASE_URL="http://localhost:11434/v1"
+$env:OPENAI_API_KEY="ollama"
+$env:AGENT_MODEL="qwen3:4b-instruct"
 $env:AGENT_TEMPERATURE="0.2"
 $env:AGENT_MAX_TOKENS="350"
 $env:AGENT_TURN_LIMIT="6"
-$env:AGENT_REQUEST_INTERVAL="4"
+$env:AGENT_REQUEST_INTERVAL="0"
 $env:AGENT_MAX_RETRIES="3"
 
-python negotiation.py --max-episodes 1
+python negotiation.py
 ```
 
-Re-run the last command as the free-model quota permits: it appends one completed episode then stops, without overwriting previous results. Once sufficient quota is available, `python negotiation.py` resumes all remaining episodes. A clean reproduction should use a separate copy of this directory **without pre-existing `results.csv` and `logs/`**, since outputs append. The four scenarios were committed before any episodes were run.
+The `OPENAI_API_KEY=ollama` value is only a nonempty placeholder required by the OpenAI-compatible client; the final experiment uses the local Ollama endpoint and no external API credential. For a clean reproduction, run in a copy without the submitted `results.csv` and `logs/`, because the runner appends results and skips already completed tuples.
 
-From the repository root, check structure:
+From repository root:
 
 ```powershell
 python scripts/check_week04.py submissions/26510128/week-04
@@ -45,28 +76,71 @@ python scripts/check_week04.py submissions/26510128/week-04
 
 ## 2. Results
 
-**Pending actual API episodes. Do not enter fabricated measurements.** After running at least three repeats of all four scenarios in each condition (36 completed episodes in total, excluding any preserved failed attempts), replace this section with a per-condition summary and the full per-episode `results.csv` table.
-
-| Condition | Completed episodes | Correct (count) | Violations (count) | Mean turns | Format errors (total) | Reader calls (total) |
+| Condition | Completed episodes | Correct | Violations | Mean turns | Format errors | Reader calls |
 |---|---:|---:|---:|---:|---:|---:|
-| free | pending | pending | pending | pending | pending | pending |
-| tagged | pending | pending | pending | pending | pending | pending |
-| structured | pending | pending | pending | pending | pending | pending |
+| free | 12 | 3 | 0 | 5.00 | 0 | 60 |
+| tagged | 12 | 3 | 0 | 5.75 | 0 | 60 |
+| structured | 12 | 0 | 0 | 6.00 | 22 | 0 |
 
-The per-episode table must reproduce every row of `results.csv`, including any aborted attempts with blank counts and a failure note.
+The table above reports counts over 12 completed episodes per condition. No private-limit violation occurred. Correctness differs because `open` is not counted as a correct no-deal outcome: for an impossible scenario, correctness requires `no_deal`.
 
-## 3. FIPA-ACL and the three reproduction conditions
+### Per-episode results
 
-| Dimension | FIPA-ACL reference | Free | Tagged | Structured |
+| Run | Condition | Scenario | Deal possible | Outcome | Price | Correct | Violation | Turns | Format errors | Reader calls | Note |
+|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---|
+| free-01 | free | headphones-compatible | 1 | deal | 60 | 1 | 0 | 2 | 0 | 2 | — |
+| free-01 | free | monitor-incompatible | 0 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| free-01 | free | keyboard-compatible | 1 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| free-01 | free | camera-incompatible | 0 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| free-02 | free | headphones-compatible | 1 | deal | 60 | 1 | 0 | 2 | 0 | 2 | — |
+| free-02 | free | monitor-incompatible | 0 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| free-02 | free | keyboard-compatible | 1 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| free-02 | free | camera-incompatible | 0 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| free-03 | free | headphones-compatible | 1 | deal | 60 | 1 | 0 | 2 | 0 | 2 | — |
+| free-03 | free | monitor-incompatible | 0 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| free-03 | free | keyboard-compatible | 1 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| free-03 | free | camera-incompatible | 0 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| tagged-01 | tagged | headphones-compatible | 1 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| tagged-01 | tagged | monitor-incompatible | 0 | open | — | 0 | 0 | 6 | 0 | 5 | — |
+| tagged-01 | tagged | keyboard-compatible | 1 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| tagged-01 | tagged | camera-incompatible | 0 | no_deal | — | 1 | 0 | 5 | 0 | 3 | — |
+| tagged-02 | tagged | headphones-compatible | 1 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| tagged-02 | tagged | monitor-incompatible | 0 | open | — | 0 | 0 | 6 | 0 | 5 | — |
+| tagged-02 | tagged | keyboard-compatible | 1 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| tagged-02 | tagged | camera-incompatible | 0 | no_deal | — | 1 | 0 | 5 | 0 | 3 | — |
+| tagged-03 | tagged | headphones-compatible | 1 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| tagged-03 | tagged | monitor-incompatible | 0 | open | — | 0 | 0 | 6 | 0 | 5 | — |
+| tagged-03 | tagged | keyboard-compatible | 1 | open | — | 0 | 0 | 6 | 0 | 6 | — |
+| tagged-03 | tagged | camera-incompatible | 0 | no_deal | — | 1 | 0 | 5 | 0 | 3 | — |
+| structured-01 | structured | headphones-compatible | 1 | open | — | 0 | 0 | 6 | 2 | 0 | — |
+| structured-01 | structured | monitor-incompatible | 0 | open | — | 0 | 0 | 6 | 2 | 0 | — |
+| structured-01 | structured | keyboard-compatible | 1 | open | — | 0 | 0 | 6 | 2 | 0 | — |
+| structured-01 | structured | camera-incompatible | 0 | open | — | 0 | 0 | 6 | 2 | 0 | — |
+| structured-02 | structured | headphones-compatible | 1 | open | — | 0 | 0 | 6 | 2 | 0 | — |
+| structured-02 | structured | monitor-incompatible | 0 | open | — | 0 | 0 | 6 | 2 | 0 | — |
+| structured-02 | structured | keyboard-compatible | 1 | open | — | 0 | 0 | 6 | 2 | 0 | — |
+| structured-02 | structured | camera-incompatible | 0 | open | — | 0 | 0 | 6 | 2 | 0 | — |
+| structured-03 | structured | headphones-compatible | 1 | open | — | 0 | 0 | 6 | 2 | 0 | — |
+| structured-03 | structured | monitor-incompatible | 0 | open | — | 0 | 0 | 6 | 2 | 0 | — |
+| structured-03 | structured | keyboard-compatible | 1 | open | — | 0 | 0 | 6 | 0 | 0 | — |
+| structured-03 | structured | camera-incompatible | 0 | open | — | 0 | 0 | 6 | 2 | 0 | — |
+
+## 3. FIPA-ACL compared with the three conditions
+
+| Dimension | FIPA-ACL | Free | Tagged | Structured |
 |---|---|---|---|---|
-| Where illocutionary force lives | Required `performative` field in the ACL message envelope | In natural-language context; inferred by the reader LLM | Parenthesized literal tag at start of text, matched by regex | JSON `performative` field, parsed programmatically |
-| Content language | Declared content language and ontology with agreed semantics | Unconstrained plain English | Plain English after the tag | JSON object with an integer `content.price` for proposals |
-| Who interprets content | Receivers use specified content-language semantics | LLM reader classifies act and extracts price on every message | Regex reads act; LLM reader extracts proposal price only | JSON parser validates act and proposed integer |
-| How conversation ends | Depends on the agreed interaction protocol and its termination rules | Parsed acceptance/refusal or six-message cap | Tagged acceptance/refusal or cap | Parsed JSON acceptance/refusal or cap |
-| What guarantees sincerity | Declarative act semantics describe intentions, but explicit act labels alone do not independently enforce truthful private limits | System prompts only; outcome checked after the fact | Same prompts; tag provides no independent budget verification | Same prompts; typed fields provide no independent budget verification |
-| What a message costs to read | Parsing/semantic interpretation and message transport depend on infrastructure | One additional LLM reader call per exchanged message | One extra reader call for a tagged proposal; regex alone for other acts | No model reader calls; local JSON parser |
-| Failure modes | Mismatched ontology/content language, unsupported act, deceptive or inconsistent agents | Ambiguous English, unsupported questions, reader misclassification, parse/API failures | Missing/invalid tag or failed proposal-price reader | Invalid JSON/schema/price, valid-looking yet insincere offers |
+| Where illocutionary force lives | In the mandatory `performative` field of the ACL message envelope | In natural-language context and inferred by an LLM reader | In an explicit parenthesized performative tag | In the JSON `performative` field |
+| Content language | Declared content language/ontology supplies shared semantics | Plain text with no formal content language | Plain text after the tag | JSON object; proposals carry `content.price` |
+| Who interprets content | The receiving system interprets the declared content language according to the protocol/ontology | LLM reader interprets every message | Regex reads the act; LLM reader extracts only proposal price | Local JSON parser validates fields and price |
+| How conversation ends | Determined by the interaction protocol and accepted terminal acts | Reader-labeled acceptance/refusal, otherwise turn cap | Tagged acceptance/refusal, otherwise turn cap | Parsed JSON acceptance/refusal, otherwise turn cap |
+| What guarantees sincerity | Explicit performative semantics state the intended communicative act, but the tag itself does not prove private information is truthful | Prompt rules only; limits are checked retrospectively | Same prompt rules; explicit tag does not verify the private limit | Typed JSON does not by itself verify truthful private information |
+| What a message costs to read | Depends on transport plus content-language parsing/semantic processing | One extra LLM reader call per message | Regex for non-proposals; one extra LLM reader call for each proposal price | Zero reader-model calls; local JSON parse only |
+| Failure modes observed/possible | Unsupported acts, ontology/content mismatch, protocol violations, misleading content | Reader dependence and turn-limit `open` outcomes | Repeated proposals/turn-limit `open`; explicit refusal can cleanly end an impossible negotiation | Strict syntax failures: malformed JSON such as `"content{}"`; turn-limit `open` |
 
 ## 4. Interpretation
 
-**Pending actual logged results.** Compare the observed condition-level correctness, violations, mean turns, format errors and reader calls without claiming that small, quota-interrupted samples establish a population effect. Include concrete references to `logs/<run>.txt`: one example of an ambiguous free-form question or reader misclassification (if observed), a tagged proposal and its reader cost, a structured parsed proposal and its zero reader-model cost, and any private-limit violation. If an expected failure does not occur, say so rather than inventing one. Separate model/provider failures from format-specific failures, and retain any rate-limited episodes as incomplete observations.
+The explicit message format clearly changed **how the protocol could read messages**, but it did not by itself guarantee successful negotiation. In the free condition, all 12 episodes were parsed with zero format errors, but reading them required 60 additional LLM calls. For example, `logs/free-01.txt` shows the buyer message `'propose 60'` classified as `performative=propose price=60`, followed by seller `'accept-proposal'`; the reader classified the acceptance and the episode ended as a correct deal at 60 after two messages. The other three scenarios in each free repeat reached the six-message cap, so free achieved 3 correct outcomes out of 12.
+
+The tagged condition also had zero format errors, but it reduced interpretation work selectively: a literal non-proposal tag was handled without a reader call, while proposals still required one reader call for price. This produced the same total reader calls as free in these specific runs (60), because most tagged messages were proposals. `logs/tagged-01.txt` illustrates both paths: `(propose) 90` required a reader call to extract 90, whereas `(reject-proposal)` was parsed directly with no reader-model call. On the impossible camera scenario, the buyer eventually sent `(refuse)`; regex parsing ended the negotiation as `no_deal`, producing the tagged condition's three correct episodes. The compatible headphone and keyboard negotiations instead kept proposing until the turn limit, showing that an explicit performative can remove ambiguity without forcing the agents to converge.
+
+The structured condition eliminated reader-model calls entirely (0 total), which is the clearest reduction in protocol interpretation cost, but strict parsing exposed a different failure mode. Across 12 episodes it produced 22 format errors. In `logs/structured-01.txt`, valid proposals such as `{"performative":"propose","content":{"price":70}}` parsed successfully, while several rejection messages were malformed as `{"performative":"reject-proposal","content{}}` and triggered `JSONDecodeError`; the protocol logged them as unparseable and continued. `logs/structured-03.txt` also provides a useful contrast: the keyboard scenario emitted syntactically valid `{"performative":"reject-proposal","content":{}}` messages, yielding zero format errors for that episode, yet the negotiation still reached the turn limit. Thus structure made interpretation deterministic and cheap **when the model obeyed the schema**, but did not make the model generate valid JSON or reach agreement. No condition produced a private-limit violation, so the observed differences concern parsing cost, syntax reliability, and termination behavior rather than sincerity violations. Because all 36 episodes used one local model and four fixed scenarios, these results describe this reproduction rather than establishing a general ranking of the three formats.

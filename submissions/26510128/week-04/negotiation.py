@@ -33,6 +33,7 @@ HEADER = [
 ]
 CONDITIONS = ("free", "tagged", "structured")
 ACTS = ("propose", "accept-proposal", "reject-proposal", "refuse")
+BASE_URL = os.getenv("OPENAI_BASE_URL") or "https://openrouter.ai/api/v1"
 MODEL = os.getenv("AGENT_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
 TEMPERATURE = float(os.getenv("AGENT_TEMPERATURE", "0.2"))
 MAX_TOKENS = int(os.getenv("AGENT_MAX_TOKENS", "350"))
@@ -93,7 +94,7 @@ def client() -> OpenAI:
     key = os.getenv("OPENAI_API_KEY")
     if not key:
         raise RuntimeError("OPENAI_API_KEY is not set in this terminal")
-    return OpenAI(api_key=key, base_url=os.getenv("OPENAI_BASE_URL") or "https://openrouter.ai/api/v1")
+    return OpenAI(api_key=key, base_url=BASE_URL)
 
 
 def model_text(api: OpenAI, messages: list[dict[str, str]]) -> str:
@@ -102,13 +103,18 @@ def model_text(api: OpenAI, messages: list[dict[str, str]]) -> str:
         if REQUEST_INTERVAL > 0:
             time.sleep(REQUEST_INTERVAL)
         try:
-            response = api.chat.completions.create(
+            request = dict(
                 model=MODEL,
                 temperature=TEMPERATURE,
                 max_tokens=MAX_TOKENS,
-                extra_body={"reasoning": {"enabled": False}},
                 messages=messages,
             )
+            # OpenRouter reasoning models may expose hidden reasoning in text;
+            # disable it there. Other OpenAI-compatible providers (for example
+            # Gemini or local Ollama) may reject this OpenRouter-specific body.
+            if "openrouter.ai" in BASE_URL.lower():
+                request["extra_body"] = {"reasoning": {"enabled": False}}
+            response = api.chat.completions.create(**request)
             choices = getattr(response, "choices", None)
             if not choices:
                 raise ModelResponseError("provider response contained no choices")

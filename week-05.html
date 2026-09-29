@@ -463,13 +463,17 @@ MCP-Protocol-Version: 2026-07-28
         <tr><td class="stage">2025-03-26</td><td>OAuth 2.1 기반 authorization, Streamable HTTP transport, tool annotations(읽기 전용인지, 파괴적인지 표시)</td></tr>
         <tr><td class="stage">2025-06-18</td><td>server를 OAuth resource server로 규정, Protected Resource Metadata(RFC 9728), client의 Resource Indicators(RFC 8707) 의무화, structured tool output, elicitation</td></tr>
         <tr><td class="stage">2025-11-25</td><td>Client ID Metadata Documents, <code class="inline">WWW-Authenticate</code>를 통한 scope 단계적 요청, 실험적 tasks</td></tr>
-        <tr><td class="stage">2026-07-28</td><td>stateless 전환. <code class="inline">initialize</code> 핸드셰이크와 세션 제거, <code class="inline">server/discover</code> 추가, tasks를 확장으로 분리, Dynamic Client Registration deprecated</td></tr>
+        <tr><td class="stage">2026-07-28</td><td>stateless 전환. <code class="inline">initialize</code> 핸드셰이크와 세션 제거, <code class="inline">server/discover</code> 추가, HTTP 요청에 <code class="inline">Mcp-Method</code>와 <code class="inline">Mcp-Name</code> 헤더 필수, client의 <code class="inline">iss</code> 확인, tasks를 확장으로 분리, Dynamic Client Registration deprecated</td></tr>
       </table>
     </div>
 
-    <p>현재 규격은 연결 상태를 없앴다. 2025-11-25까지는 client가 먼저 <code class="inline">initialize</code>를 보내 서로의 능력을 교환하고 세션을 연 뒤에 <code class="inline">tools/list</code>를 불렀다. 지금은 위의 요청처럼 요청마다 <code class="inline">_meta</code>에 protocol version과 client capabilities를 싣고, server는 요청 하나하나를 따로 처리한다. 버전을 미리 맞추고 싶은 client는 <code class="inline">server/discover</code>를 부른다. 여러 호출에 걸친 상태가 필요한 server는 식별자(handle)를 직접 발급하고, client는 그것을 tool 인자로 넘긴다. 그래서 과제의 협상장에서는 모든 tool이 <code class="inline">negotiation_id</code>를 받는다.</p>
+    <p>2025-11-25 규격까지는 client가 먼저 <code class="inline">initialize</code>를 보내 세션을 열어야 <code class="inline">tools/list</code> 같은 요청을 보낼 수 있었다. 2026-07-28 규격은 이 핸드셰이크와 세션을 없앴다. 대신 모든 요청이 <code class="inline">_meta</code>에 protocol version과 client capabilities를 직접 싣는다. 위의 <code class="inline">tools/list</code> 요청이 이 형식이다.</p>
 
-    <div class="note"><b>PYTHON SDK V1 / V2</b>Python SDK 2.x는 2026-07-28을 쓰고, 옛 server에는 <code class="inline">initialize</code>로 내려간다. v1의 <code class="inline">FastMCP</code>는 v2에서 <code class="inline">MCPServer</code>로 이름이 바뀌어, v1 코드는 v2에서 import부터 실패한다.</div>
+    <p>세션이 없으니 server는 요청을 하나씩 따로 처리한다. 여러 호출에 걸쳐 상태를 이어 가야 하면 server가 식별자(handle)를 만들어 돌려주고, client는 다음 호출에서 그 값을 tool 인자로 넘긴다. 그래서 과제의 협상장에서는 모든 tool이 <code class="inline">negotiation_id</code>를 받는다.</p>
+
+    <p>HTTP로 보낼 때는 헤더도 필수가 됐다. 모든 요청에 <code class="inline">Mcp-Method</code>를 붙이고, <code class="inline">tools/call</code>이면 부르는 tool 이름을 <code class="inline">Mcp-Name</code>에도 적는다. 본문에 이미 있는 값을 헤더에 한 번 더 적어 두면, load balancer나 gateway가 JSON을 열지 않고도 어떤 tool 호출인지 보고 요청을 나누거나 막을 수 있다. 헤더가 빠지거나 본문과 다르면 server는 400(<code class="inline">HeaderMismatch</code>)으로 거절한다.</p>
+
+    <div class="note"><b>PYTHON SDK V1 / V2</b>v1, v2는 Python SDK의 버전이고, 규격은 날짜로만 부른다. SDK 2.x는 2026-07-28 규격을 쓰고, 옛 server에는 <code class="inline">initialize</code>로 내려간다. v1의 <code class="inline">FastMCP</code>는 v2에서 <code class="inline">MCPServer</code>로 이름이 바뀌어, v1 코드는 v2에서 import부터 실패한다.</div>
   </div>
 </section>
 
@@ -486,7 +490,7 @@ MCP-Protocol-Version: 2026-07-28
       </table>
     </div>
 
-    <p>쓰는 쪽이 얼마나 되는지는 TypeScript SDK(<code class="inline">@modelcontextprotocol/sdk</code>)의 npm 월간 다운로드로 볼 수 있다.</p>
+    <p>FIPA-ACL은 그 규격을 쓸 에이전트가 생기기 전에 나왔다. MCP는 반대로 이미 tool calling을 하던 host들이 바로 가져다 썼다. TypeScript SDK(<code class="inline">@modelcontextprotocol/sdk</code>)의 npm 월간 다운로드는 아래와 같다.</p>
     <div class="recorder">
       <div><span class="k">2024-12</span><span class="v"><span class="m">102,851</span></span></div>
       <div><span class="k">2025-09</span><span class="v"><span class="m">31,258,519</span></span></div>
@@ -494,9 +498,11 @@ MCP-Protocol-Version: 2026-07-28
     </div>
     <p class="small">npm 공개 다운로드 통계(api.npmjs.org). CI와 의존성 설치가 섞인 수치라 사용자 수와 같지 않다.</p>
 
-    <p>에이전트가 정말 그럴 의도로 tool을 불렀는지는 MCP에서도 확인할 수 없다. 대신 server는 그 호출이 허락받은 것인지를 확인할 수 있고, 규격은 2025-03-26부터 그 절차를 OAuth 2.1로 적어 왔다. 메시지의 뜻을 정신 상태 대신 밖에서 확인할 수 있는 약속으로 옮기자는 Singh(1998)의 제안과 같은 방향이다.</p>
+    <p>FIPA-ACL은 메시지의 뜻을 보내는 쪽의 믿음과 의도로 정의했지만, 그 의도를 밖에서 확인할 방법이 없었다. MCP에서도 모델이 어떤 의도로 tool을 불렀는지는 확인할 수 없다. 대신 server는 그 호출이 허락받은 것인지를 확인할 수 있고, 규격은 2025-03-26부터 그 절차를 OAuth 2.1로 적어 왔다. 메시지의 뜻을 정신 상태 대신 밖에서 확인할 수 있는 약속으로 옮기자는 Singh(1998)의 제안과 같은 방향이다.</p>
 
-    <p>OAuth의 역할에 맞추면 MCP server는 resource server, host 안의 client는 OAuth client이고, 토큰을 발급하는 authorization server가 따로 있다. 흐름은 FIG. 03과 같다. 토큰 없이 요청하면 server는 401과 함께 <code class="inline">WWW-Authenticate</code> 헤더에 Protected Resource Metadata 문서의 주소를 준다. client는 그 문서에서 authorization server를 찾고, 사용자의 동의를 받아 토큰을 받는다. 이때 <code class="inline">resource</code> 파라미터에 server 주소를 적어 토큰이 이 server 전용으로 발급되게 한다. 이후 모든 요청에 <code class="inline">Authorization: Bearer</code> 헤더를 붙인다. 토큰의 scope가 모자라면 server는 403 <code class="inline">insufficient_scope</code>와 필요한 scope를 돌려주고, client는 더 넓은 scope로 다시 인가를 받는다(step-up).</p>
+    <p>OAuth의 역할에 맞추면 MCP server는 resource server, host 안의 client는 OAuth client이고, 토큰을 발급하는 authorization server가 따로 있다. 흐름은 FIG. 03과 같다. 토큰 없이 요청하면 server는 401과 함께 <code class="inline">WWW-Authenticate</code> 헤더에 Protected Resource Metadata 문서의 주소를 준다. client는 그 문서에서 authorization server를 찾고, 사용자의 동의를 받아 인가 코드를 받은 뒤 토큰으로 바꾼다. 이때 <code class="inline">resource</code> 파라미터에 server 주소를 적어 토큰이 이 server 전용으로 발급되게 한다. 이후 모든 요청에 <code class="inline">Authorization: Bearer</code> 헤더를 붙인다. 토큰의 scope가 모자라면 server는 403 <code class="inline">insufficient_scope</code>와 필요한 scope를 돌려주고, client는 더 넓은 scope로 다시 인가를 받는다(step-up).</p>
+
+    <p>2026-07-28 규격은 이 흐름에 규칙을 더했다. authorization server의 응답에 <code class="inline">iss</code>가 있으면, client는 인가 코드를 토큰으로 바꾸기 전에 그 값이 Protected Resource Metadata에서 찾은 authorization server와 같은지 확인한다(RFC 9207). 한 authorization server에서 받은 client 자격 증명은 다른 authorization server에 쓰지 않는다. client 등록은 Dynamic Client Registration 대신 Client ID Metadata Documents를 권한다.</p>
 
     <div class="fig" id="fig3">
       <svg viewBox="0 0 680 384" role="img" aria-label="Authorization sequence between an MCP client, an MCP server acting as OAuth resource server, and an authorization server, in eight steps">

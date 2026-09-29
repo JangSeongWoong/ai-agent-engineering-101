@@ -463,13 +463,17 @@ MCP-Protocol-Version: 2026-07-28
         <tr><td class="stage">2025-03-26</td><td>Authorization based on OAuth 2.1, the Streamable HTTP transport, tool annotations (read-only, destructive)</td></tr>
         <tr><td class="stage">2025-06-18</td><td>Servers classified as OAuth resource servers, Protected Resource Metadata (RFC 9728), Resource Indicators (RFC 8707) required of clients, structured tool output, elicitation</td></tr>
         <tr><td class="stage">2025-11-25</td><td>Client ID Metadata Documents, incremental scope requests through <code class="inline">WWW-Authenticate</code>, experimental tasks</td></tr>
-        <tr><td class="stage">2026-07-28</td><td>Stateless. The <code class="inline">initialize</code> handshake and sessions removed, <code class="inline">server/discover</code> added, tasks moved to an extension, Dynamic Client Registration deprecated</td></tr>
+        <tr><td class="stage">2026-07-28</td><td>Stateless. The <code class="inline">initialize</code> handshake and sessions removed, <code class="inline">server/discover</code> added, <code class="inline">Mcp-Method</code> and <code class="inline">Mcp-Name</code> headers required on HTTP requests, clients check <code class="inline">iss</code>, tasks moved to an extension, Dynamic Client Registration deprecated</td></tr>
       </table>
     </div>
 
-    <p>The current revision removed connection state. Up to 2025-11-25, the client first sent <code class="inline">initialize</code> to exchange capabilities and open a session, and only then called <code class="inline">tools/list</code>. Now, as in the request above, every request carries the protocol version and the client capabilities in <code class="inline">_meta</code>, and the server handles each request on its own. A client that wants to settle the version up front calls <code class="inline">server/discover</code>. A server that needs state across calls mints its own identifier (a handle), and the client passes it back as a tool argument. This is why every tool in the assignment's market takes a <code class="inline">negotiation_id</code>.</p>
+    <p>Up to the 2025-11-25 revision, a client first sent <code class="inline">initialize</code> to open a session before it could send requests such as <code class="inline">tools/list</code>. The 2026-07-28 revision removed the handshake and the session. Instead, every request carries the protocol version and the client capabilities in its own <code class="inline">_meta</code>. The <code class="inline">tools/list</code> request above has this shape.</p>
 
-    <div class="note"><b>PYTHON SDK V1 / V2</b>Python SDK 2.x speaks 2026-07-28 and falls back to <code class="inline">initialize</code> for older servers. v1's <code class="inline">FastMCP</code> was renamed <code class="inline">MCPServer</code> in v2, so v1 code fails at the import under v2.</div>
+    <p>With no session, the server handles each request on its own. When state has to carry across calls, the server mints an identifier (a handle) and returns it, and the client passes that value back as a tool argument on the next call. This is why every tool in the assignment's market takes a <code class="inline">negotiation_id</code>.</p>
+
+    <p>Over HTTP, headers became required as well. Every request carries <code class="inline">Mcp-Method</code>, and a <code class="inline">tools/call</code> also puts the tool's name in <code class="inline">Mcp-Name</code>. Repeating values from the body in headers lets a load balancer or gateway see which tool is being called, and route or block the request, without opening the JSON. If a header is missing or disagrees with the body, the server rejects the request with 400 (<code class="inline">HeaderMismatch</code>).</p>
+
+    <div class="note"><b>PYTHON SDK V1 / V2</b>v1 and v2 are versions of the Python SDK; the specification is named only by date. SDK 2.x speaks 2026-07-28 and falls back to <code class="inline">initialize</code> for older servers. v1's <code class="inline">FastMCP</code> was renamed <code class="inline">MCPServer</code> in v2, so v1 code fails at the import under v2.</div>
   </div>
 </section>
 
@@ -486,7 +490,7 @@ MCP-Protocol-Version: 2026-07-28
       </table>
     </div>
 
-    <p>How many use it shows in the monthly npm downloads of the TypeScript SDK (<code class="inline">@modelcontextprotocol/sdk</code>).</p>
+    <p>FIPA-ACL arrived before there were agents to use it. MCP went the other way: hosts that already did tool calling picked it up at once. Monthly npm downloads of the TypeScript SDK (<code class="inline">@modelcontextprotocol/sdk</code>):</p>
     <div class="recorder">
       <div><span class="k">2024-12</span><span class="v"><span class="m">102,851</span></span></div>
       <div><span class="k">2025-09</span><span class="v"><span class="m">31,258,519</span></span></div>
@@ -494,9 +498,11 @@ MCP-Protocol-Version: 2026-07-28
     </div>
     <p class="small">npm public download statistics (api.npmjs.org). The figures include CI and dependency installs, so they are not a count of users.</p>
 
-    <p>Whether an agent really meant to make a tool call still cannot be checked in MCP. What a server can check is whether a call was authorized, and the specification has described that procedure with OAuth 2.1 since 2025-03-26. It is the direction Singh (1998) proposed: move the meaning of a message from mental states to commitments that can be checked from outside.</p>
+    <p>FIPA-ACL defined the meaning of a message through the sender's beliefs and intentions, and those intentions could not be checked from outside. In MCP, too, what the model intended when it called a tool cannot be checked. What a server can check is whether a call was authorized, and the specification has described that procedure with OAuth 2.1 since 2025-03-26. It is the direction Singh (1998) proposed: move the meaning of a message from mental states to commitments that can be checked from outside.</p>
 
-    <p>In OAuth terms, the MCP server is the resource server, the client in the host is the OAuth client, and a separate authorization server issues tokens. The flow is FIG. 03. A request without a token gets a 401, with the address of the Protected Resource Metadata document in the <code class="inline">WWW-Authenticate</code> header. The client finds the authorization server in that document, gets the user's consent, and receives a token. On the way it puts the server's address in the <code class="inline">resource</code> parameter, so the token is issued for this server only. From then on every request carries an <code class="inline">Authorization: Bearer</code> header. When the token's scope falls short, the server returns 403 <code class="inline">insufficient_scope</code> with the scopes it needs, and the client re-authorizes with a wider scope (step-up).</p>
+    <p>In OAuth terms, the MCP server is the resource server, the client in the host is the OAuth client, and a separate authorization server issues tokens. The flow is FIG. 03. A request without a token gets a 401, with the address of the Protected Resource Metadata document in the <code class="inline">WWW-Authenticate</code> header. The client finds the authorization server in that document, gets the user's consent, and exchanges the resulting authorization code for a token. On the way it puts the server's address in the <code class="inline">resource</code> parameter, so the token is issued for this server only. From then on every request carries an <code class="inline">Authorization: Bearer</code> header. When the token's scope falls short, the server returns 403 <code class="inline">insufficient_scope</code> with the scopes it needs, and the client re-authorizes with a wider scope (step-up).</p>
+
+    <p>The 2026-07-28 revision adds rules to this flow. If the authorization server's response carries <code class="inline">iss</code>, the client checks, before exchanging the authorization code for a token, that it matches the authorization server found through the Protected Resource Metadata (RFC 9207). Client credentials obtained from one authorization server are never used with another. For client registration, Client ID Metadata Documents are recommended over Dynamic Client Registration.</p>
 
     <div class="fig" id="fig3">
       <svg viewBox="0 0 680 384" role="img" aria-label="Authorization sequence between an MCP client, an MCP server acting as OAuth resource server, and an authorization server, in eight steps">

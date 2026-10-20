@@ -29,6 +29,7 @@ from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 
 from catalog_search import load_catalog, shortlist
 from model_harness import decide, whole_price
+from pricing_policy import quote_adjustment, record_sale
 
 BASE_RESERVES = {"lamp": 100, "chair": 180, "bookshelf": 260}
 SYSTEM_PROMPT = """You are a seller agent operating inside an A2A store. Negotiate fairly
@@ -125,7 +126,9 @@ class Seller(AgentExecutor):
                 return
             reserve = int(item["reserve"])
             d = decide(SYSTEM_PROMPT, {"phase": "opening", "item": item["name"], "reserve": reserve}, ("ask",))
-            ask = max(reserve, whole_price(d))
+            adjustment, evidence = quote_adjustment(self.name, item["name"])
+            ask = max(reserve, whole_price(d) + adjustment)
+            print(f"[pricing policy] item={item['name']} adjustment={adjustment} evidence={json.dumps(evidence, ensure_ascii=False)}", flush=True)
             current = {"item": item, "ask": ask, "rounds": 0, "history": []}
             self.active[task.id] = current
             print(f"[seller opening] task={task.id} item={item['id']} reserve={reserve} ask={ask}", flush=True)
@@ -157,6 +160,7 @@ class Seller(AgentExecutor):
             })
             await updater.add_artifact(parts=[new_data_part(receipt)], name="receipt")
             await updater.complete(say(f"Deal accepted. Receipt price {offer}"))
+            record_sale(item["name"], offer, reserve, task.id)
             print(f"[seller completed] task={task.id} price={offer} reserve={reserve}", flush=True)
             del self.active[task.id]
             return

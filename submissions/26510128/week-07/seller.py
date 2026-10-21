@@ -29,7 +29,7 @@ from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 
 from catalog_search import load_catalog, shortlist
 from model_harness import decide, whole_price
-from pricing_policy import quote_adjustment, record_sale
+from pricing_policy import opening_quote, record_sale
 
 BASE_RESERVES = {"lamp": 100, "chair": 180, "bookshelf": 260}
 SYSTEM_PROMPT = """You are a seller agent operating inside an A2A store. Negotiate fairly
@@ -126,9 +126,8 @@ class Seller(AgentExecutor):
                 return
             reserve = int(item["reserve"])
             d = decide(SYSTEM_PROMPT, {"phase": "opening", "item": item["name"], "reserve": reserve}, ("ask",))
-            adjustment, evidence = quote_adjustment(self.name, item["name"])
-            ask = max(reserve, whole_price(d) + adjustment)
-            print(f"[pricing policy] item={item['name']} adjustment={adjustment} evidence={json.dumps(evidence, ensure_ascii=False)}", flush=True)
+            ask, evidence = opening_quote(self.name, item["name"], reserve, whole_price(d))
+            print(f"[pricing policy] item={item['name']} evidence={json.dumps(evidence, ensure_ascii=False)}", flush=True)
             current = {"item": item, "ask": ask, "rounds": 0, "history": []}
             self.active[task.id] = current
             print(f"[seller opening] task={task.id} item={item['id']} reserve={reserve} ask={ask}", flush=True)

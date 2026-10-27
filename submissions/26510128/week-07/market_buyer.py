@@ -156,7 +156,7 @@ def main() -> None:
         review = explanation
     else:
         stars = 5
-        review = f"Receipt verified locally; fair price {receipt['price']} within budget."
+        review = f"Receipt fields match task, item and price {receipt['price']} within budget; market kit checks signatures."
     print(f"[result] shop={chosen['name']} outcome={'deal' if receipt else 'no deal'} "
           f"reason={explanation}", flush=True)
     prev = memory.setdefault(chosen["name"], {"successes": 0, "failures": 0, "mismatches": 0})

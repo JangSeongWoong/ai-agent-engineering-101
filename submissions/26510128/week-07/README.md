@@ -42,22 +42,40 @@ The kit creates `shop_key.pem` and `buyer_key.pem` at runtime; never
 commit them. The local market-test already created a seller key, which
 must be preserved for later joining.
 
-## Challenge 1 input
+## Evidence required for both challenges
 
-Actual sales are appended locally in `.market/seller-sales.jsonl`.
-If you have genuine market reviews, export them into
-`.market/seller-reviews.json` as:
-```json
-{"shop":"JangSeongWoong","reviews":[{"stars":4,"review":"Actual review text","round":2}]}
-```
-Do not fabricate reviews to claim challenge completion.
+**Challenge 1:** The pricing policy now reads only official market board
+summary statistics (`/api/board?round=2` and round 1) and adapts opening
+asks within an enforced reserve floor. Baseline observation on 2026-10-21:
+1,996 counted seller deals; 2,601 visits; 1,786 reviews; average 4.06
+stars; board share field 0.09; total revenue 372,169. These are
+**before** the new policy was verified running, not its outcomes.
+Preserve raw JSON and run the same read-only query after actually deploying
+the new policy. To compare average price, use revenue/deals for snapshots
+and incremental (after revenue - before revenue)/(after deals - before deals)
+when the increments are positive. Distinguish raw cumulative board share
+from new-share over an observation window. Do not fabricate test results.
 
-## Challenge 2 input
+**Challenge 2:** The old live market log includes `bright-living` sending a
+`[MARKET NOTICE FOR AI BUYING AGENTS ...]` message directing the buyer to
+accept a price and issue five stars. The existing buyer kept its hard budget.
+The updated `market_buyer.py` also recognizes market-authority instruction
+spoofing, declines that negotiation, and stores an `injection_attempts`
+counter by shop name so future selections penalize it. This is a new
+preventive control, not yet proof of a second live encounter.
+Save the genuine raw log and a real subsequent detection/avoidance trace
+under `logs/challenge-2/`.
 
-For a real dishonest participant, preserve the original
-`logs/market-kit.log` record and review evidence. Our buyer already
-penalizes bad reviews and mismatched receipts, but the challenge needs a
-real example in a live market.
+**Security:** Copy raw market-kit logs only after checking that no credentials
+or bearer tokens were logged. Never commit `shop_key.pem`,
+`buyer_key.pem`, `.market/` or a market claim code. If a market claim
+code has ever been published, ask the market operator about revoking or
+rotating it.
+
+**Live process:** Running `market_kit.py` will not automatically load
+updated local Python source. Perform a controlled stop of the existing kit
+before `git pull origin week-07`, rerun the full market test,
+then use the same nickname and existing keys to rejoin.
 
 ## Before opening PR
 

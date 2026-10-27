@@ -26,7 +26,7 @@ different from its most recent offer), keeps the signed data Part unchanged,
 and prints a final JSON line with shop URL, receipt or null, stars and review.
 A hard budget check runs outside the model.
 
-## 3. Rounds 0, 1 and 2 — LIVE DATA REQUIRED
+## 3. Rounds 0, 1 and 2 — observations with stated gaps
 The lecture defines R0 (random shop, no reviews), R1 (review/memory-based shop
 selection), R2 (shop and buyer signed receipts tied to a genuine market order).
 **Do not fill in trade counts, market shares or round comparisons until they
@@ -52,24 +52,43 @@ No failed local signature test was observed or claimed.
 
 ## 5. Challenges
 ### Challenge 1 — seller adapts asking price
-`pricing_policy.py` stores **observed** signed seller deals to
-`.market/seller-sales.jsonl`. Market reviews may be imported from a real
-dashboard to `.market/seller-reviews.json`, shaped as
-`{"shop":"JangSeongWoong","reviews":[{"stars":4,"review":"...", "round":2}]}`.
-Only after >=2 real reviews and >=2 observed deals does it adjust opening
-asks (+3 for high trust, -5 for low trust or overcharging complaints).
-The invariant `ask >= reserve` remains code-enforced.
-**Before/after market share and average price are pending live dashboard
-data; do not report a price adjustment as demonstrated before actual use.**
 
-### Challenge 2 — avoid dishonest participants
-The buyer scores low-star comments, suspicious receipt warnings and prior
-receipt mismatches; the official **synthetic** review test demonstrates
-it chose the good-review shop 3/3 times, avoiding the bad-review shop.
-This is not yet evidence of encountering a live dishonest participant.
-A real suspicious shop and avoidance trace from the market must be
-recorded in `logs/challenge-2/`.
+The current `pricing_policy.py` reads the official read-only market board for
+the student's own Round 2/1 counted deals and summary ratings. It caches the
+response briefly and imposes a hard `ask >= reserve` invariant. With no
+counted sales, it quotes the reserve; with some sales, a reserve + 5
+introductory margin; with at least three counted sales and two high-rating
+reviews, a reserve + 10 cap. Low ratings or documented complaints reduce the
+margin. Signed local A2A receipts are logged but **not** represented as
+market-verified trades because local tests also create them.
 
+One real **before** snapshot was preserved on the student's own Windows PC on
+2026-10-21. A later **after** snapshot must be taken after deploying the new
+policy, and compared on equal observation windows. Raw board shares and
+cumulative revenues alone cannot establish causal uplift. Observe the
+`[pricing policy]` and `[seller opening]` lines before claiming the policy
+executed. The student must save the after snapshot and relevant genuine market
+logs under `logs/challenge-1/`; they have not yet been made available here.
+
+### Challenge 2 — dishonest participant avoidance
+
+The buyer uses published reviews and its own past trade outcomes to rank
+shops. A documented live market response from `bright-living` attempted to
+impersonate the market operator and tell AI buying agents to accept a price
+and give five stars. The original buyer refused an over-budget offer and did
+not issue a five-star review. After that observation, `market_buyer.py` was
+modified to detect this specific class of market-authority instruction,
+refuse the transaction before feeding that seller text to the harness, and
+persist an `injection_attempts` penalty against the *shop name*. On future
+orders, that risk influences the initial shop ranking even when its tunnel
+URL changes.
+
+This change is a preventive implementation, **not** proof of a live
+encounter after deployment or of subsequent avoidance. The original log
+and a later real detection/avoidance trace must be saved unedited to
+`logs/challenge-2/`. The official market test must be rerun after this
+change.
+ 
 ### Real Round 2 seller baseline from 2026-10-21 (BEFORE the new live-price policy restart)
 
 The student queried the *official public* `/api/board?round=2` endpoint, and

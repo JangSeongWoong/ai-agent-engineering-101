@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from a2a_client import asking_price, jsonrpc_url, read_card, send_message, task_state
+from a2a_client import asking_price, jsonrpc_url, read_card, send_message, task_state, task_text
 from buyer import choose_move
 from model_harness import decide
 
@@ -29,6 +29,20 @@ def memory_save(memory: dict[str, Any]) -> None:
     MEMORY.write_text(json.dumps(memory, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def suspicious_authority_message(text: str) -> bool:
+    """Detect instruction spoofing, not ordinary seller price negotiations."""
+    t = text.lower()
+    authority = any(x in t for x in (
+        "market notice for ai", "market policy:", "market operator has verified",
+        "instruction for ai buying", "system instruction for buyer",
+    ))
+    instruction = any(x in t for x in (
+        "give this shop 5 stars", "give us 5 stars", "accept the shop",
+        "ignore your budget", "override your budget", "must accept",
+    ))
+    return authority and instruction
+
+
 def risk(shop: dict[str, Any], memory: dict[str, Any]) -> float:
     reviews = shop.get("reviews", []) or []
     reviewed = sum((3 - int(x.get("stars", 3))) for x in reviews[:15]) * 3
@@ -38,7 +52,7 @@ def risk(shop: dict[str, Any], memory: dict[str, Any]) -> float:
                for word in ("overcharg", "higher than", "fraud", "dishonest", "scam", "wrong receipt"))
     )
     own = memory.get(shop["name"], {})
-    penalty = 6 * int(own.get("failures", 0)) + 20 * int(own.get("mismatches", 0))
+    penalty = 6 * int(own.get("failures", 0)) + 20 * int(own.get("mismatches", 0)) + 1000 * int(own.get("injection_attempts", 0) > 0)
     return reviewed + suspicious + penalty
 
 
@@ -91,6 +105,9 @@ def negotiate(shop: dict[str, Any], item: str, budget: int) -> tuple[dict[str, A
         hist: list[dict[str, Any]] = []
         for _ in range(8):
             state = task_state(task)
+            if suspicious_authority_message(task_text(task)):
+                print(f"[safety] seller authority spoof detected shop={shop['name']!r} task={tid}; walking away", flush=True)
+                return None, "Suspected market-authority prompt injection"
             if state == "TASK_STATE_COMPLETED":
                 rec = get_receipt(task)
                 if rec is None:
@@ -135,7 +152,7 @@ def main() -> None:
     chosen = choose_shop(shops, args.item, args.budget, memory)
     receipt, explanation = negotiate(chosen, args.item, args.budget)
     if receipt is None:
-        stars = 2 if "mismatch" in explanation.lower() else 3
+        stars = 2 if ("mismatch" in explanation.lower() or "injection" in explanation.lower()) else 3
         review = explanation
     else:
         stars = 5
@@ -146,6 +163,9 @@ def main() -> None:
     prev["successes" if receipt else "failures"] += 1
     if "mismatch" in explanation.lower():
         prev["mismatches"] += 1
+    if "prompt injection" in explanation.lower():
+        prev["injection_attempts"] = int(prev.get("injection_attempts", 0)) + 1
+        print(f"[safety memory] shop={chosen['name']!r} marked as authority-spoof risk; future selection penalized", flush=True)
     prev["last_trade"] = {"date": datetime.now(timezone.utc).isoformat(), "item": args.item,
                           "budget": args.budget, "outcome": "deal" if receipt else "no_deal"}
     memory_save(memory)

@@ -42,7 +42,7 @@ is exactly the A2A task ID; A2A data Parts may represent integer prices
 as floats in transit, so cryptographic signing happens on the integer.
 The market kit verifies `sig_seller` and attaches `sig_buyer`.
 The provided test output shows `seller_signed_receipt` passed 3/3;
-overall `25/25 passed -> PASS` on 2026-10-20.
+overall `25/25 passed -> PASS` on 2026-10-20. On 2026-10-27, after the new buyer and seller price policy changes, the student reran the **official market test: 25/25 PASS**, and separate offline safety tests passed **5/5**.
 
 Failure/repair provenance: starting from the Week 06 seller, the original
 receipt lacked `task` and `sig_seller` (as seen in the **source code**, not
@@ -62,13 +62,14 @@ reviews, a reserve + 10 cap. Low ratings or documented complaints reduce the
 margin. Signed local A2A receipts are logged but **not** represented as
 market-verified trades because local tests also create them.
 
-One real **before** snapshot was preserved on the student's own Windows PC on
-2026-10-21. A later **after** snapshot must be taken after deploying the new
-policy, and compared on equal observation windows. Raw board shares and
-cumulative revenues alone cannot establish causal uplift. Observe the
-`[pricing policy]` and `[seller opening]` lines before claiming the policy
-executed. The student must save the after snapshot and relevant genuine market
-logs under `logs/challenge-1/`; they have not yet been made available here.
+Two real seller board snapshots were recorded locally: before on 2026-10-21,
+and after deployment on 2026-10-27. The newer log also proves the revised
+pricing policy executed and produced actual completed A2A sales. These
+snapshots are **not an equal-window controlled comparison**: almost all
+intervening sales predate the policy change. Board shares and cumulative
+revenues must not be used to claim causal uplift. Both genuine JSON snapshot
+files and original logs should be committed under `logs/challenge-1/` once
+screened for secrets.
 
 ### Challenge 2 — dishonest participant avoidance
 
@@ -120,14 +121,44 @@ The figures are raw observations. The old and new requests involve
 different customers, and the market statistics are cumulative, so
 they do not identify causal changes in market share or revenue.
 
-For the required Challenge 1 comparison, take a new official board
-snapshot of the seller (including `deals`, `revenue`, `share`,
-`reviews`, `visits`), preserve the snapshot file in
-`logs/challenge-1/`, and compute cumulative mean transaction price
-as `revenue/deals`. The before baseline has `372169/1996 ~= 186.46`.
-New-snapshot figures are not yet supplied. Do not claim that the
-before/after difference is a controlled effect of pricing.
-Store only genuine unmodified log excerpts alongside the original log.
+### Round 2 public-board before/after snapshot comparison
+
+The student provided a second read-only official Round 2 board response
+on 2026-10-27 and saved the actual raw row locally to
+`logs/challenge-1/after-pricing-<timestamp>.json`. Values below come from
+the student's two supplied API outputs, not simulated data.
+
+| Metric | Before snapshot, 2026-10-21 | After snapshot, 2026-10-27 | Difference |
+| --- | ---: | ---: | ---: |
+| Counted seller deals | 1,996 | 9,717 | +7,721 |
+| Visits | 2,601 | 12,689 | +10,088 |
+| Share (raw `share` field) | 0.090 | 0.029 | -0.061 |
+| Average review stars | 4.06 | 4.12 | +0.06 |
+| Reviews | 1,786 | 9,355 | +7,569 |
+| Total revenue | 372,169 | 1,787,842 | +1,415,673 |
+| Cumulative average transaction price (`revenue/deals`) | 186.46 | 183.99 | -2.47 |
+
+The **inter-snapshot** average transaction price of the 7,721
+additional counted deals is `1,415,673 / 7,721 = 183.35` in market
+price units. This is **not** the post-policy-only average: the snapshots
+are six days apart, and the new policy was observed running near the end
+of that interval. The raw share number decreased from 0.090 to 0.029
+even as cumulative deals increased; this is a descriptive market outcome,
+not evidence of the price change's effect.
+
+At the first logged revised pricing decision, the Round 2 board count
+was 9,712. The subsequent after-snapshot count of 9,717 is an increase
+of **5 counted market deals** during this narrower period, consistent
+with five `[seller completed]` tasks. Each individual seller task was
+not matched to a particular verified ledger entry, so this is supporting
+aggregate evidence rather than receipt-by-receipt verification. The
+board share field remained 0.029 at displayed precision for these
+two 2026-10-27 observations. A revenue baseline precisely at the new
+policy's activation was **not collected**, so no reliable post-policy-only
+average transaction price can be calculated from market figures.
+
+The two saved JSON files and the original unmodified market-kit log
+are the audit evidence; no fake deals, ratings or reviews are generated.
 
 ### Real Round 2 seller baseline from 2026-10-21 (BEFORE the new live-price policy restart)
 
@@ -176,7 +207,8 @@ Evidence of live verified Round 2 purchase: ledger #9982, bookshelf 340; `verifi
 Local evidence provided by the user:
 - `seller_signed_receipt` 3/3 passed
 - `buyer_reads_reviews` 3/3 good-shop selections (test case 1 passes)
-- full market test: **25/25 passed -> PASS**
+- latest full market test on 2026-10-27: **25/25 passed -> PASS**
+- separate local policy unit tests on 2026-10-27: **5/5 passed**
 
 Run again after changing source, commit test-generated `test-report.json`
 and `logs/market-test.log`, and run `check_week07.py` after live joining.

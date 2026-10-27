@@ -15,13 +15,32 @@ from buyer import choose_move
 from model_harness import decide
 
 MEMORY = Path(__file__).resolve().parent / ".market" / "buyer-memory.json"
+AUDITED_SPOOFING = Path(__file__).resolve().parent / "logs" / "challenge-2" / "observed-spoofing.json"
 
 
 def history_load() -> dict[str, Any]:
     try:
-        return json.loads(MEMORY.read_text(encoding="utf-8"))
+        memory = json.loads(MEMORY.read_text(encoding="utf-8"))
+        if not isinstance(memory, dict):
+            memory = {}
     except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+        memory = {}
+
+    # Only import actual locally observed spoofing attempts. The audit
+    # artifact records the original market-kit log line and SHA-256.
+    try:
+        audit = json.loads(AUDITED_SPOOFING.read_text(encoding="utf-8"))
+        for event in audit.get("observations", []):
+            name = event.get("shop")
+            if (isinstance(name, str) and name.strip()
+                    and isinstance(event.get("line"), int)
+                    and event.get("evidence_sha256")):
+                entry = memory.setdefault(name, {})
+                entry["injection_attempts"] = max(1, int(entry.get("injection_attempts", 0)))
+                entry["suspicion_source"] = "observed-market-kit-log"
+    except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError, AttributeError):
+        pass
+    return memory
 
 
 def memory_save(memory: dict[str, Any]) -> None:
@@ -57,8 +76,18 @@ def risk(shop: dict[str, Any], memory: dict[str, Any]) -> float:
 
 
 def choose_shop(shops: list[dict[str, Any]], item: str, budget: int,
-                memory: dict[str, Any]) -> dict[str, Any]:
-    ranked = sorted(shops, key=lambda s: (risk(s, memory), s["name"]))
+                memory: dict[str, Any]) -> dict[str, Any] | None:
+    # A historical, logged instruction-spoofing attempt is stronger evidence
+    # than a relative reputation score. Never contact a confirmed-risk shop.
+    blocked = sorted(s["name"] for s in shops
+                     if int(memory.get(s["name"], {}).get("injection_attempts", 0)) > 0)
+    if blocked:
+        print(f"[safety selection] excluded={blocked!r} reason=observed-authority-spoofing", flush=True)
+    eligible = [s for s in shops if s["name"] not in blocked]
+    if not eligible:
+        print("[safety selection] no eligible shops; no A2A request sent", flush=True)
+        return None
+    ranked = sorted(eligible, key=lambda s: (risk(s, memory), s["name"]))
     candidates = ranked[:min(len(ranked), 5)]
     summaries = [{
         "name": s["name"], "risk": risk(s, memory),
@@ -150,6 +179,13 @@ def main() -> None:
         raise ValueError("shops must be a nonempty JSON array")
     memory = history_load()
     chosen = choose_shop(shops, args.item, args.budget, memory)
+    if chosen is None:
+        # A no-deal response is more honest than trading with a blocked shop.
+        # Market kit requires a known shop URL in its final JSON envelope.
+        print(json.dumps({"shop": shops[0]["url"], "receipt": None, "stars": 3,
+                          "review": "No safe seller available; no shop contacted."},
+                         ensure_ascii=False), flush=True)
+        return
     receipt, explanation = negotiate(chosen, args.item, args.budget)
     if receipt is None:
         stars = 2 if ("mismatch" in explanation.lower() or "injection" in explanation.lower()) else 3

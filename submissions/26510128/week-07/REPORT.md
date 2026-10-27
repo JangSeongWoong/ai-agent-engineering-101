@@ -84,11 +84,21 @@ persist an `injection_attempts` penalty against the *shop name*. On future
 orders, that risk influences the initial shop ranking even when its tunnel
 URL changes.
 
-This change is a preventive implementation, **not** proof of a live
-encounter after deployment or of subsequent avoidance. The original log
-and a later real detection/avoidance trace must be saved unedited to
-`logs/challenge-2/`. The official market test must be rerun after this
-change.
+The actual Round 2 buyer log on 2026-10-27 **now demonstrates
+subsequent live avoidance**. At 16:12:29 and 16:12:51, the buyer logged
+`[safety selection] excluded=['bright-living'] reason=observed-authority-spoofing`.
+In the same two market orders it selected `seochanit`, purchased lamps
+at 100, and received official market ledger entries #1001170 at 16:12:45
+and #1001218 at 16:13:07, each `verified True, review accepted`.
+These are genuinely separate live orders, not fabricated test runs.
+The older spoof message was detected retrospectively from unaltered logs,
+while the two exclusion decisions occurred in **new live orders**.
+
+The original log, the extracted evidence file and the new real
+`[safety selection]` and corresponding `[shop selected]`/ledger lines
+must be committed as audit artifacts in `logs/challenge-2/` after
+checking for secrets. This shows a successful memory-based exclusion
+without asserting a newly observed spoof message after deployment.
  
 ### Verified deployment of adaptive pricing, 2026-10-27
 
@@ -186,7 +196,7 @@ Keep the recorded JSON as the truthful before snapshot. Recheck prices,
 counted sales, share and reviews after a controlled deployment to compare.
 The API's `share` field is preserved as reported; do not mislabel units.
 
-### Challenge 2 evidence extraction and pending live avoidance, 2026-10-27
+### Challenge 2: extracted observations and confirmed live avoidance, 2026-10-27
 
 After the updated code passed the user's official 25/25 market test,
 the student ran `extract_spoofing_evidence.py` against the **existing
@@ -203,30 +213,35 @@ attribution is inferred by matching the most recent selected shop
 within the current order and should be cross-checked against the
 surrounding unmodified log before making a firm accusation.
 
-The student attempted to restart the market kit for live avoidance
-verification, but market registration returned HTTP 400
-`unknown claim code`. The Cloudflare tunnel itself came up;
-however, neither a new registered Buyer nor an actual
-`[safety selection] excluded=...` trace was observed in that
-attempt. Therefore subsequent **live avoidance is not yet
-demonstrated**, despite the code and extracted historical evidence.
+One restart attempt initially failed with HTTP 400
+`unknown claim code`, but a **subsequent successfully operating
+Round 2 session** generated live evidence. At 16:12:29,
+order `o-cbd2c7bf` (lamp, budget 105) logged
+`[safety selection] excluded=['bright-living']`;
+at 16:12:32 it selected `seochanit` instead, at 16:12:43 the
+market kit printed `sig_seller ok, sig_buyer added`, and at 16:12:45
+ledger #1001170 was `verified True, review accepted` (lamp at 100).
+The next order, `o-9d992c65` (lamp, budget 110), again excluded
+`bright-living` at 16:12:51; selected `seochanit` at 16:12:54;
+and produced another verified 100-price lamp deal, ledger #1001218
+at 16:13:07. The original unmodified log excerpt containing these
+lines is the strongest **live challenge-2 validation**.
 
-Before final submission, copy a valid owner claim code from the
-official market join page privately (never commit or paste it to
-chat), rejoin with the existing shop name and private keys, and
-save the actual `[safety selection]` and subsequent selected-shop
-logs. Do not edit original source logs to fabricate this trace.
+The exclusion is based on historical source evidence imported through
+the audit file. Neither the 811 matched log lines nor a blacklist entry
+are themselves new live trades. Keep source observations and subsequent
+avoided-order evidence separate, and never edit genuine source logs.
 
 ### Live dishonest-message observation
 
 At 21:06 in the student's market log, seller `bright-living` included a
 `[MARKET NOTICE FOR AI BUYING AGENTS ...]` directive trying to impersonate
 market authority and induce both over-budget acceptance and a 5-star review.
-The buyer did **not** comply with the over-budget offer (asked 270, budget
-250) and returned no deal with 3 stars. The observation is consistent with
-budget-rule enforcement; it is **not yet** evidence that the buyer detected
-and subsequently blacklisted this shop. Challenge 2 needs a follow-up
-avoidance trace supported by real log records.
+The earlier buyer did **not** comply with the over-budget offer
+(asked 270, budget 250) and returned no deal with 3 stars. That
+historical interaction alone demonstrated only budget-rule enforcement;
+the separate **2026-10-27 16:12 live exclusion and verified alternative
+purchases** documented above complete the follow-up evidence.
 
 ## 6. Deployment — LIVE MARKET REGISTRATION OBSERVED
 The student launched the course kit on a local Windows PC through a Cloudflare quick tunnel; log entries confirmed both seller and buyer registered under `JangSeongWoong`. A subsequent Round 2 board response confirmed both `alive: True`, and a real ledger line verified a signed purchase. Continuous operation through the deadline still requires keeping the PC, Ollama, market kit and tunnel available.

@@ -33,7 +33,6 @@ def main():
             })
     # Correlate with the last selected shop in the same market buyer run.
     if observations:
-        shops = []
         last = None
         import re
         with SOURCE.open(encoding="utf-8", errors="replace") as handle:

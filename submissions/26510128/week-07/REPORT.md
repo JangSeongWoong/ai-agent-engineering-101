@@ -186,6 +186,37 @@ Keep the recorded JSON as the truthful before snapshot. Recheck prices,
 counted sales, share and reviews after a controlled deployment to compare.
 The API's `share` field is preserved as reported; do not mislabel units.
 
+### Challenge 2 evidence extraction and pending live avoidance, 2026-10-27
+
+After the updated code passed the user's official 25/25 market test,
+the student ran `extract_spoofing_evidence.py` against the **existing
+genuine** `logs/market-kit.log`. The script reported **811 matching
+response log lines**, all attributed by the extractor to
+`bright-living`, and wrote
+`logs/challenge-2/observed-spoofing.json` locally. It records raw
+matching text, original log line number and SHA-256 for each.
+Example reported line numbers: 328, 331, 334, 337, 340.
+The 811 lines are **not** 811 proven independent dishonest
+transactions or necessarily distinct orders: repeated responses
+during one negotiation may be counted more than once. The shop
+attribution is inferred by matching the most recent selected shop
+within the current order and should be cross-checked against the
+surrounding unmodified log before making a firm accusation.
+
+The student attempted to restart the market kit for live avoidance
+verification, but market registration returned HTTP 400
+`unknown claim code`. The Cloudflare tunnel itself came up;
+however, neither a new registered Buyer nor an actual
+`[safety selection] excluded=...` trace was observed in that
+attempt. Therefore subsequent **live avoidance is not yet
+demonstrated**, despite the code and extracted historical evidence.
+
+Before final submission, copy a valid owner claim code from the
+official market join page privately (never commit or paste it to
+chat), rejoin with the existing shop name and private keys, and
+save the actual `[safety selection]` and subsequent selected-shop
+logs. Do not edit original source logs to fabricate this trace.
+
 ### Live dishonest-message observation
 
 At 21:06 in the student's market log, seller `bright-living` included a

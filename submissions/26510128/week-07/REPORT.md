@@ -89,6 +89,46 @@ and a later real detection/avoidance trace must be saved unedited to
 `logs/challenge-2/`. The official market test must be rerun after this
 change.
  
+### Verified deployment of adaptive pricing, 2026-10-27
+
+The student's original unedited `logs/market-kit.log` contains
+pre-deployment chair opening asks at 15:19:54 and 15:21:07:
+`reserve=180 ask=195`, together with `adjustment=0` and
+`review_count=0` (legacy implementation). Those two deals completed at
+180 and 195.
+
+After successful market re-registration at 15:21:55/15:21:56, the log
+shows the **new** `[pricing policy]` evidence object with:
+`market.source=official-public-market-board`,
+`market.round2.counted_deals=9712`, `review_count=9350`,
+`mean_stars=4.12`, and raw `share=0.029`. Round 1 feedback timed
+out, but Round 2 was available. The policy identified an observed
+market-sales condition and capped the opening ask at reserve + 5.
+
+| Item | Reserve | Model ask before policy | Actual adaptive opening ask | Signed local A2A completed sales observed |
+| --- | ---: | ---: | ---: | --- |
+| lamp | 100 | 115 | 105 | 1 at 105 (15:23:15) |
+| bookshelf | 260 | 275 | 265 | 1 at 265 (15:23:31) |
+| chair | 180 | 195 | 185 | 3 at 185 (15:23:52, 15:24:16, 15:24:19) |
+
+This shows that the **new price policy actually ran in the deployed
+seller** and at least five A2A tasks completed after the change.
+These `[seller completed]` lines do **not** by themselves prove that
+each transaction was accepted in the market ledger (which has separate
+verification criteria); cross-check the board's counted-deal change.
+The figures are raw observations. The old and new requests involve
+different customers, and the market statistics are cumulative, so
+they do not identify causal changes in market share or revenue.
+
+For the required Challenge 1 comparison, take a new official board
+snapshot of the seller (including `deals`, `revenue`, `share`,
+`reviews`, `visits`), preserve the snapshot file in
+`logs/challenge-1/`, and compute cumulative mean transaction price
+as `revenue/deals`. The before baseline has `372169/1996 ~= 186.46`.
+New-snapshot figures are not yet supplied. Do not claim that the
+before/after difference is a controlled effect of pricing.
+Store only genuine unmodified log excerpts alongside the original log.
+
 ### Real Round 2 seller baseline from 2026-10-21 (BEFORE the new live-price policy restart)
 
 The student queried the *official public* `/api/board?round=2` endpoint, and

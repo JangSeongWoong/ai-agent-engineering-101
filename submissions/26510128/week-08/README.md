@@ -70,6 +70,7 @@ latest upstream kit. Update the kit to v4 as below before live trading.**
 
 ```powershell
 cd C:\Users\jangs\ai-agent-engineering-101
+git fetch origin week-08
 git switch week-08
 git pull origin week-08
 git fetch https://github.com/Q00/ai-agent-engineering-101.git main

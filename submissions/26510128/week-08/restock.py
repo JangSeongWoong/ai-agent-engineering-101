@@ -51,7 +51,10 @@ def main():
                 "provided shortlist using observed demand and inventory. Never "
                 "invent SKUs, costs or customer orders. Return JSON "
                 '{"action":"select","sku":"EXACT_SKU"}.',
-                {"proposals": buy[:6], "demand": demand_weights(demand),
+                {"proposals": buy[:6],
+                 "demand": {str(products[x["sku"]].get("category")):
+                            demand_weights(demand).get(str(products[x["sku"]].get("category")), 0)
+                            for x in buy[:6] if x["sku"] in products},
                  "cash": inv.get("balance"), "stock_count": len(inv.get("units", []))},
                 ("select",),
             )

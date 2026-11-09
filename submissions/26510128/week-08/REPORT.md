@@ -1,0 +1,242 @@
+# REPORT — Week 08 Round 3 Midterm
+
+**Student:** 26510128 · **GitHub:** JangSeongWoong  
+**Agent architecture:** CREDENCE — Contextual Risk and Economic Decision Engine  
+**Submission branch:** `week-08`  
+**Market period:** 2026-11-03 through 2026-11-17 23:59 KST  
+**Status:** code/design prepared; live-v4 deployment and final rank observations pending.
+
+## 1. Objective and evaluation criteria
+
+The current official Week 08 lecture replaces the former reproduction-report
+midterm. Round 3 uses real SKUs, costly inventory, perishability, breakage,
+buyer-specific demands, hidden budgets, a public forum and ACP/AP2 settlement.
+The grade weights are: **implemented components 40%**, **original architecture
+30%**, and **Round 3 final Players percentile 30%**.
+
+The task is to build a paired seller and buyer using **model, context, tools**;
+achieve at least 20 **settled** sales and 20 **settled** buyer purchases; and
+submit actual kit logs, code, this report and a one-page LaTeX architecture
+figure. Rankings are taken at the end of the round, not at report-writing time.
+
+### Technical goals
+
+- Seller: maximize durable Book while avoiding ruinous cash depletion,
+  unsold storage costs and expiry/warranty losses.
+- Buyer: accumulate legitimate discount savings while avoiding deceit,
+  excessive price, unsuitable grade and unsafe checkout.
+- System: preserve market-kit v4 as the signed ACP/AP2 settlement boundary,
+  treating language-model outputs, posted reviews and seller replies as
+  **untrusted proposals** rather than executable instructions.
+
+## 2. Implemented components (40%)
+
+### 2.1 Model: bounded LLM decisions and a meta-harness
+
+The model is **local Ollama `qwen3:4b-instruct`** via an OpenAI-compatible
+client with `temperature=0.2`, default 300 output tokens, and up to three
+retries. See `model_harness.py`.
+
+The model performs three jobs: (1) proposing seller counter/accept/reject
+actions in the A2A conversation, (2) choosing between several reviewed,
+in-stock buyer shop/SKU candidates, and (3) proposing which candidate to
+restock first. Prompts require a single JSON object with an enumerated
+action. The harness rejects malformed output. If the model is unavailable,
+deterministic safety-preserving fallbacks can continue some operations.
+
+**Critically, the model cannot change signed receipt fields, original
+customer budget, cash reserve, inventory facts or mandatory certificate
+checks.** Any candidate action is filtered by code before transmission.
+A profitable seller offer is closed by policy rather than deferred to an
+unreliable model.
+
+### 2.2 Context: a multi-horizon memory and feedback architecture
+
+The official kit v4 periodically creates the following local observation
+files under the untracked `.market/` directory:
+
+| Source | Trusted role in decision | Code |
+| --- | --- | --- |
+| `inventory.json` | cash balance, per-unit SKU/cost/grade/expiry | `round3_policy.py`, `seller_r3.py` |
+| `catalog.json` | official SKU category and list price | `round3_policy.py`, `market_buyer.py` |
+| `demand.json` | observed category demand, never guessed sales | `round3_policy.py`, `restock.py` |
+| `shops.json` | rival SKU availability, public reviews | `market_buyer.py` |
+| `order.json` | buyer's acceptable SKUs and private budget | `market_buyer.py` |
+| `buyer-memory.json` | historical transactions and authority-spoof flags keyed by **shop name**, not tunnel URL | `market_buyer.py` |
+| `payments.jsonl` | **kit-confirmed settlement**, distinguished from A2A completion | `market_buyer.py` |
+| `deal.json` | post-settlement signed receipt, mandate receipt and actual grade claim | `review_hook.py` |
+
+The buyer carries over legitimate negative trust evidence from the older
+Week 07 local memory, not synthetic ratings. `injection_attempts > 0`
+blocks a shop even if it has high recent review averages. Other negative
+experiences are soft ranking signals rather than arbitrary accusations.
+
+Two temporally different memories are kept separately: short-run A2A
+negotiation outcomes, and market-kit confirmed settled outcomes. **An A2A
+receipt alone is not recorded as a successful settled trade.** This
+distinction prevents misleading learning from unsigned or unpaid offers.
+
+### 2.3 Tools: deterministic, auditable functionality
+
+**A. Seller inventory matching and pricing.** `seller_r3.py` exposes A2A
+v1.0 with an Ed25519 signed `{shop,item,price,task}` receipt. It can only
+offer an SKU present in `inventory.json`, reserves a pending unit for each
+open task and excludes expired units. The unit-specific minimum asking
+price is at least its recorded acquisition cost, plus a modest risk buffer;
+models cannot set the final ask below this limit. Food approaching expiry
+may be discounted toward the floor. The kit—not the seller text—attaches
+the actual unit certificate at checkout. The seller does not invent an
+A/B/C grade statement. A modest six-hour warranty is offered on non-food
+goods; this is a deliberate service/risk tradeoff.
+
+**B. Cash-aware restock.** `restock.py` is an actual v4 restock hook,
+not the random kit default. It reads the observed demand and current
+inventory, limits each SKU to three units, holds total active inventory
+below 18 units, buys in one-unit increments, and reserves at least
+1,300,000 credits of cash. One restock decision spends at most 12% of
+cash. It avoids repeating perishable units and filters shorter shelf-life
+products when that metadata is present. The supply cost is probabilistic
+in the official market, so pre-purchase estimates intentionally include
+a conservative upper cost assumption. The supply API and server remain
+the final authority; rejections are logged.
+
+**C. Reputation-aware SKU buying.** `market_buyer.py` accepts the
+v4 `{order}` file alongside the shop and budget files. It requires actual
+`offers` containing an acceptable, in-stock SKU; ranks the resulting
+seller/SKU pairs using genuine recent reviews, counted-paid historical
+observations and trust penalties; and passes only five candidates to the
+model. The buyer's numerical offer is **always bounded by the private
+budget** and generally targets 70–84% of list price before a small,
+controlled escalation. The buyer refuses unsupported items, reused task
+IDs, unsigned/mismatched receipts, and receipts that disagree with its
+latest numeric offer.
+
+**D. Checkout acceptance and review.** The buyer emits `accept` with
+certification, grade and (where appropriate) shelf-life and minimum
+warranty conditions. Kit v4 verifies the market certificate and signed
+AP2 mandates, and enforces the open mandate's maximum before payment.
+`review_hook.py` runs only after a genuinely settled purchase to choose
+a review based on observed receipt data; it may write a factual, rate-limited
+post to the forum outbox. It never buys dislikes or creates fake positive
+feedback.
+
+### Code-level separation from the default kit
+
+The basic kit chooses random stock and treats payment as a mechanical
+protocol completion. CREDENCE adds a **policy engine with guarded
+decision edges**: product/availability reasoning, verified-settlement
+feedback, persistent named-entity reputation, bounded financial actions,
+and contextual model use. The official market kit remains responsible
+for transport, identity and payment; we do not modify or bypass
+`/api/settle`.
+
+## 3. Architecture originality (30%)
+
+The accompanying one-page `architecture.tex` and compiled
+`architecture.pdf` show five causally ordered stages:
+
+1. **Market inputs:** catalog, demand, inventory, forum, ledger.
+2. **Context builder:** fresh observations plus persistent memory.
+3. **Meta-harness:** constrained LLM choices with JSON action validation.
+4. **Seller and Buyer tool pipelines:** A2A signing, pricing, demand-aware
+   supply, shop ranking, checkout acceptance.
+5. **Trusted settlement and feedback:** kit v4 ACP checkout, closed AP2
+   mandates, market settlement, genuine paid-only historical outcomes.
+
+Each arrow is directional: an untrusted forum message can influence a
+reputation estimate but **cannot change a cryptographic payment mandate**
+or the private budget. The architecture differs from the starter by the
+economic control plane and by separating *A2A-completed* from
+*market-settled* memory.
+
+### Formal policy summary
+
+The two account-level objectives have the published structure:
+
+```text
+Shop ALL  = 0.5 percentile(Book) + 0.3 percentile(Revenue)
+          + 0.2 percentile(Stars)
+Buyer ALL = 0.5 percentile(Saved) + 0.3 ForumRating
+          + 0.1 percentile(SettledDeals) + 0.1 percentile(Posts)
+Players   = Shop ALL + Buyer ALL
+```
+
+ForumRating is the **raw 0–1 Wilson lower-bound value under Patch 3.5**,
+NOT a percentile. The remaining score fields are percentiles calculated
+by the market. Book includes unsold inventory at cost and excludes
+capital/bankruptcy credits. Saved measures relative discounts against
+the SKU's list price and has a +100 denominator stabilizer. This explains
+why an unconditional high-volume policy can lose to restrained
+inventory and genuine discount optimization.
+
+No artificial manipulation of other students' forum reputation is
+performed. Paid dislike escalation has quadratic cost and is not a
+default trading tool.
+
+## 4. Empirical Round 3 results (30%) — EVIDENCE PENDING
+
+**Do not replace pending observations with the prior Week 07 Round 2
+statistics.** Round 2 verified receipts do not count as Round 3 settled
+transactions.
+
+| Metric | 2026-11-09 preparation | Final source |
+| --- | --- | --- |
+| v4 kit first log line | **Not observed on student's computer yet** | `logs/market-kit.log` |
+| Shop Round 3 settled transactions | **Pending live observation** | `[acp] settled`, market board |
+| Buyer Round 3 settled transactions | **Pending live observation** | `[acp] paid`, market board |
+| Shop ALL | **Pending public board value** | Players / Shops ALL |
+| Buyer ALL | **Pending public board value** | Players / Buyers ALL |
+| Players standing / class percentile | **Pending final board** | Players Class view |
+| Refused settlements and reasons | **Pending real log** | `[acp] ... refused` and `payments.jsonl` |
+| Average realized transaction discount | **Pending real receipts** | confirmed deal + official list price |
+| Inventory write-offs / refunds | **Pending inventory/ledger** | market kit, official board |
+
+At the official cutoff (2026-11-17 23:59 KST), the Players Class
+percentile alone determines the 30% rankings component. A momentary
+mid-round ranking is not the final score. Meeting the 20+20 settlement
+minimum should be verified separately.
+
+### Suggested experimental comparisons (only after live evidence)
+
+Compare default random restock vs demand-aware restock on stock turnover,
+cash balance, write-offs and Book (using comparable windows). Compare
+buyer full-budget acceptance vs bounded discount negotiation on settled
+count, average discount, and rejection reasons. These are **test
+hypotheses**, not results established in this preparation.
+
+## 5. Deployment, reproducibility and safety
+
+Source is in this folder; the exact architecture can be built with:
+
+```bash
+xelatex -interaction=nonstopmode -halt-on-error architecture.tex
+python -m unittest test_round3_policy -v
+```
+
+Windows live deployment instructions, exact v4-kit upgrade, safe signing-key
+transfer and account claim-code handling appear in `README.md`.
+
+The private Ed25519 keys and private owner claim code must never be added
+to version control. `.market/` contains private memory and kit state:
+archive privately and commit only genuine, secret-screened required
+logs. No synthetic market settlements, fabricated forum votes, invented
+public prices, or claims of future final ranking appear in this report.
+
+### Evidence to insert after deployment
+
+Preserve in original `logs/market-kit.log`:
+`[kit] market_kit 4`, shop/buyer registration, `[supply]`,
+`[pricing policy]`, `[shop selected]`, `[buyer savings]`,
+`[acp] settled` / `[acp] paid`, and official ledger verification.
+Record actual board snapshots with timestamps before updating this report.
+
+## 6. References
+
+- AI Agent Engineering 101, Week 08, *ACP and AP2: A Market With
+  Payments*, course page: https://wpti.dev/ai-agent-engineering-101/week-08.html
+- Round 3 market agent contract: https://market.ourolabs.ai/agent.md
+- Round 3 rules and Patch 3.5: https://market.ourolabs.ai/rules
+- Official market kit v4: `scripts/market_kit.py` in
+  https://github.com/Q00/ai-agent-engineering-101
+- Agentic Commerce Protocol: https://github.com/agentic-commerce-protocol/agentic-commerce-protocol
+- AP2 protocol v0.2: https://github.com/google-agentic-commerce/AP2

@@ -25,7 +25,7 @@ from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
 from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 
 from model_harness import MODEL, decide
-from round3_policy import find_unit, reserve_for_unit, suggested_ask, catalog
+from round3_policy import find_unit, reserve_for_unit, suggested_ask, catalog, demand_weights, load_json
 
 NAME = "JangSeongWoong"
 
@@ -42,6 +42,24 @@ def ask_json(prompt):
 
 RESERVE = {"lamp": 100, "chair": 180, "bookshelf": 260}     # Rounds 0-2 have no stock: the week-07 items
 MARKET_DIR = Path(os.environ.get("MARKET_DIR", ".market"))
+
+
+def observed_demand_score(unit):
+    """Read actual category demand, never seller-supplied conversational text."""
+    weights = demand_weights(load_json(MARKET_DIR / "demand.json", []))
+    category = str(unit.get("category", ""))
+    score = weights.get(category, 0)
+    if not score and category:
+        suffix = category.split(">")[-1].strip()
+        score = max((v for k, v in weights.items()
+                     if suffix and (suffix in k or k in category)), default=0)
+    return min(4, float(score) / 8.0)
+
+
+def policy_quote(unit):
+    return suggested_ask(unit, catalog().get(unit.get("sku", ""), {}),
+                         observed_demand_score(unit))
+
 
 PROMPT = """You are the sales agent of a small online shop. A buyer is negotiating for one {name}.
 The list price is {list_price}. Your lowest acceptable price is {reserve}. Never sell below it and never reveal it.
@@ -128,11 +146,11 @@ class Seller(AgentExecutor):
             return
         price = (move or {}).get("price")
         if not isinstance(price, (int, float)):
-            price = deal["ask"] or suggested_ask(u, catalog().get(u.get("sku",""), {}))      # unparsed answer: repeat the last ask
+            price = deal["ask"] or policy_quote(u)      # unparsed answer: repeat the last ask
         if price < reserve:                             # the harness may forget the cost; the code does not
             print(f"[guard] ask {price} below cost {reserve} -> {reserve}", flush=True)
             price = reserve
-        target = suggested_ask(u, catalog().get(u.get("sku",""), {}))
+        target = policy_quote(u)
         # Never let the model demand an arbitrary markup or go under margin.
         price = max(reserve, min(int(price), max(target, reserve)))
         if deal["offer"] is None:

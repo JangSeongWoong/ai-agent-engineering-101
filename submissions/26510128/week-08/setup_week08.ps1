@@ -6,6 +6,8 @@ $ErrorActionPreference = "Stop"
 Set-Location "C:\Users\jangs\ai-agent-engineering-101"
 
 Write-Host "[1/6] Updating week-08 branch"
+git fetch origin week-08
+if ($LASTEXITCODE -ne 0) { throw "Cannot fetch week-08." }
 git switch week-08
 if ($LASTEXITCODE -ne 0) { throw "Cannot switch to week-08." }
 git pull origin week-08

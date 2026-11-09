@@ -10,6 +10,7 @@ from pathlib import Path
 
 from model_harness import decide
 from round3_policy import catalog, demand_weights, inventory, load_json, plan_restock
+from forum_signal import extract_forum_hints
 
 
 def main():
@@ -27,6 +28,19 @@ def main():
             print("[restock evidence] using actual recently requested categories", flush=True)
     if not isinstance(products, dict):
         products = catalog()
+    # Add at most a *small*, unique-author forum demand hint. Never forward
+    # raw untrusted forum text into the LLM or interpret it as instructions.
+    forum = load_json(state / "forum.json", {})
+    if products:
+        categories = {str(x.get("category")) for x in products.values()
+                      if isinstance(x, dict) and x.get("category")}
+        hints = extract_forum_hints(forum, categories)
+        observed = demand_weights(demand)
+        for c, score in hints.items():
+            observed[c] = observed.get(c, 0) + score
+        if hints:
+            print(f"[forum evidence] {len(hints)} capped demand hints", flush=True)
+        demand = observed
     buy = plan_restock(inv, products, demand)
     if buy:
         # LLM judges a SHORTLIST, not money amounts. Any unlisted choice is

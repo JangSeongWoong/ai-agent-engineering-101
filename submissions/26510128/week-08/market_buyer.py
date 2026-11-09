@@ -200,6 +200,22 @@ def negotiate(shop: dict[str, Any], sku: str, name: str, budget: int,
         return None, f"A2A negotiation failed: {type(exc).__name__}: {exc}"
 
 
+def remember_market_category(order: dict[str, Any]) -> None:
+    """Observe a real category request without storing the private budget."""
+    category = str(order.get("item") or order.get("category") or "").strip()
+    if not category or len(category) > 150:
+        return
+    path = MARKET / "observed-demand.json"
+    data = load_json(path, {})
+    counts = data.get("counts", {}) if isinstance(data, dict) else {}
+    counts[category] = min(10000, int(counts.get(category, 0)) + 1)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"counts": counts, "source": "real kit orders"},
+                              ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--shops", required=True)
@@ -210,6 +226,7 @@ def main() -> None:
     shops = load_json(Path(args.shops), [])
     order = load_json(Path(args.order), {})
     mem = history_load()
+    remember_market_category(order)
     reconcile_payments(mem)
     choice = choose_shop(shops, order, mem) if isinstance(shops, list) else None
     accept = safe_accept_policy(order)

@@ -152,8 +152,12 @@ def safe_accept_policy(order: dict[str, Any]) -> dict[str, Any]:
         needed = float(order.get("use_within_hours") or 0)
         policy["min_hours_left"] = max(2, needed)
     else:
-        # 6-hour minimum mitigates a fraction of unknown breakage risk.
-        policy["warranty_hours"] = 6
+        # Most competitor sellers do not offer a warranty. Demanding one
+        # on every order would make our buyer unable to settle 20+ trades.
+        # Optional explicit risk preference after observing the market.
+        minimum = money(os.getenv("AGENT_MIN_WARRANTY_HOURS", "0"))
+        if minimum > 0:
+            policy["warranty_hours"] = min(72, minimum)
     return policy
 
 

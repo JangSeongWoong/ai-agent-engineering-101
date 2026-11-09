@@ -37,8 +37,11 @@ class MoneySafetyTests(unittest.TestCase):
         self.assertGreaterEqual(a["min_hours_left"], 8)
         self.assertTrue(a["cert"])
 
-    def test_nonfood_warranty_cap(self):
+    def test_nonfood_warranty_is_opt_in(self):
         a = safe_accept_policy({"kind": "goods"})
+        self.assertNotIn("warranty_hours", a)
+        with patch.dict("os.environ", {"AGENT_MIN_WARRANTY_HOURS": "6"}):
+            a = safe_accept_policy({"kind": "goods"})
         self.assertEqual(a["warranty_hours"], 6)
 
     def test_do_not_restock_while_cash_near_minimum(self):

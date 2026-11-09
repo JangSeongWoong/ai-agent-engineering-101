@@ -91,8 +91,8 @@ class Seller(AgentExecutor):
             deal = self.open[task.id] = {"unit": unit, "ask": None, "offer": None, "lines": [f"buyer: {text}"]}
         else:
             deal["lines"].append(f"buyer: {text}")
-            m = re.search(r"\d+", text)
-            deal["offer"] = int(m.group()) if m else deal["offer"]
+            m = re.fullmatch(r"\s*(\d+)\s*", text)
+            deal["offer"] = int(m.group(1)) if m else None
 
         u = deal["unit"]
         reserve = reserve_for_unit(u, catalog().get(u.get("sku",""), {}))

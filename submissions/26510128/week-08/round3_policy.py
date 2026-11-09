@@ -163,7 +163,17 @@ def safe_accept_policy(order: dict[str, Any]) -> dict[str, Any]:
 
 def demand_weights(demand: Any) -> dict[str, float]:
     if isinstance(demand, dict):
-        demand = demand.get("categories", demand.get("demand", []))
+        demand = demand.get("categories", demand.get("demand", demand))
+    if isinstance(demand, dict):
+        result = {}
+        for k, v in demand.items():
+            if isinstance(v, dict):
+                v = next((v[key] for key in ("count", "orders", "weight", "demand") if key in v), 1)
+            try:
+                result[str(k)] = max(.1, min(float(v), 10000))
+            except (TypeError, ValueError):
+                continue
+        return result
     if not isinstance(demand, list):
         return {}
     result: dict[str, float] = {}
@@ -204,6 +214,10 @@ def plan_restock(inv: dict[str, Any], products: dict[str, dict[str, Any]],
     for sku, product in products.items():
         category = str(product.get("category", ""))
         demand_strength = weights.get(category, 0)
+        if demand_strength == 0:
+            suffix = category.split(">")[-1].strip()
+            demand_strength = max((v for k, v in weights.items()
+                                   if suffix and (suffix in k or k in category)), default=0)
         if not demand_strength or by_sku[sku] >= MAX_PER_SKU:
             continue
         lp = money(product.get("list_price"))

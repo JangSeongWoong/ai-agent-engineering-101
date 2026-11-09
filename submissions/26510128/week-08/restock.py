@@ -20,6 +20,11 @@ def main():
     inv = load_json(state / "inventory.json", {})
     products = load_json(state / "catalog.json", {})
     demand = load_json(state / "demand.json", [])
+    if not demand_weights(demand):
+        observed = load_json(state / "observed-demand.json", {})
+        demand = observed.get("counts", {}) if isinstance(observed, dict) else {}
+        if demand:
+            print("[restock evidence] using actual recently requested categories", flush=True)
     if not isinstance(products, dict):
         products = catalog()
     buy = plan_restock(inv, products, demand)

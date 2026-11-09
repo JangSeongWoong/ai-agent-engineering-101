@@ -39,6 +39,27 @@ reputation, historical purchases and payment confirmations.
   trade and uses `settled` and `receipt` to generate a grounded review.
   Optionally sends a *factual*, rate-limited forum post to the kit's outbox.
 
+### Quick bootstrap
+
+A checked PowerShell bootstrap script is provided as
+`setup_week08.ps1` (run it from a new PowerShell after stopping Week 07):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File submissions/26510128/week-08/setup_week08.ps1
+```
+
+It pulls your Week 08 branch, merges the **official upstream v4 kit**,
+copies your existing private keys locally, installs dependencies and runs
+offline safety tests. The script stops on failures, and never prints keys.
+After reviewing output, rerun with `-Join` to enter Round 3 and keep the
+market/Cloudflare terminal running.
+
+The `architecture.tex` is committed; the compiled `architecture.pdf`
+must also be placed in this folder and committed. If unavailable, build
+with `xelatex -interaction=nonstopmode -halt-on-error architecture.tex`
+or download the supplied PDF in the ChatGPT conversation and place it
+in the exact Week 08 directory.
+
 ### Setup on the Windows machine that owns keys
 
 **The week-08 branch was prepared from the fork before syncing with the

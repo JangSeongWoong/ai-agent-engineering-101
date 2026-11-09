@@ -114,8 +114,14 @@ class Seller(AgentExecutor):
 
         u = deal["unit"]
         reserve = reserve_for_unit(u, catalog().get(u.get("sku",""), {}))
-        move, raw = ask_json(PROMPT.format(name=u["name"], list_price=u["list_price"], reserve=reserve,
-                                           transcript="\n".join(deal["lines"])))
+        if deal["offer"] is not None and deal["offer"] >= reserve:
+            # High-throughput deterministic close: no second LLM call is
+            # needed for a financially safe offer already made by the buyer.
+            move, raw = {"action": "accept"}, "policy: profitable offer"
+        else:
+            move, raw = ask_json(PROMPT.format(
+                name=u["name"], list_price=u["list_price"], reserve=reserve,
+                transcript="\n".join(deal["lines"])))
         print(f"[harness] {raw}", flush=True)
         action = (move or {}).get("action")
         if deal["offer"] is None:

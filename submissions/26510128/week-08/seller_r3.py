@@ -1,10 +1,10 @@
 """Week 08 adaptive seller: real kit-v4 inventory, hard floor, signed receipts.
 
-    python seller.py --port 9301
+    python seller_r3.py --port 9301
 
 The harness decides every move; this file only speaks A2A, finds a unit for what the buyer asks, and signs the
 receipt with shop_key.pem (the kit makes it). It ships the unit that expires first, says nothing about quality,
-never offers a warranty, and never goes below the unit's cost. All of that is yours to change.
+offers a bounded warranty for non-food goods, and never goes below the unit-specific floor.
 """
 import argparse
 import base64
@@ -102,6 +102,10 @@ class Seller(AgentExecutor):
         action = (move or {}).get("action")
         if deal["offer"] is None:
             action = "counter"  # never accept an unspecified price
+        elif deal["offer"] >= reserve:
+            # Financial guard: close any above-floor offer to avoid speculative
+            # stockholding and let real customers complete settlement.
+            action = "accept"
         if action == "accept" and (deal["offer"] is None or deal["offer"] < reserve):
             print(f"[guard] accept of {deal['offer']} below cost {reserve} -> counter", flush=True)
             action, move = "counter", {"price": deal["ask"] or u["list_price"]}
